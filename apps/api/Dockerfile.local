@@ -1,0 +1,26 @@
+# apps/api/Dockerfile.local
+# Development image — hot reload with ts-node-dev
+# Never use this in production
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+COPY apps/api/package*.json ./apps/api/
+COPY packages/question-schema/package*.json ./packages/question-schema/
+RUN npm ci --workspace=apps/api --workspace=packages/question-schema
+
+# Copy prisma schema and generate client
+COPY apps/api/prisma ./prisma
+RUN npx prisma generate --schema=./prisma/schema.prisma
+
+# ts-node-dev for hot reload
+RUN npm install -g ts-node-dev
+
+EXPOSE 3000
+
+# Run migrations then start with hot reload
+CMD sh -c "npx prisma migrate dev --schema=./prisma/schema.prisma && \
+           ts-node-dev --respawn --transpile-only src/main.ts"

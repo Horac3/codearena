@@ -1,0 +1,68 @@
+version: '3.9'
+
+# CodeArena — local development override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+#
+# What this does differently from production:
+#  - API runs with hot reload (ts-node-dev) instead of compiled dist
+#  - Ports are exposed to localhost so you can hit them directly
+#  - No nginx-proxy, no SSL, no VIRTUAL_HOST — plain HTTP
+#  - Uses .env.local instead of .env
+#  - API and web source directories are mounted for live reload
+#  - Removes restart:unless-stopped so containers don't auto-restart on crash
+
+services:
+
+  codearena-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.local
+    ports:
+      - "3000:3000"       # directly accessible at localhost:3000
+    env_file: .env.local
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./apps/api/src:/app/src:ro          # hot reload source
+      - ./questions:/app/questions:ro
+    depends_on:
+      codearena-db:
+        condition: service_healthy
+      codearena-redis:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - codearena-internal
+
+  codearena-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.local
+    ports:
+      - "5173:5173"       # vite dev server at localhost:5173
+    env_file: .env.local
+    volumes:
+      - ./apps/web:/app:ro
+      - /app/node_modules  # keep container node_modules, don't overwrite
+    restart: "no"
+    networks:
+      - codearena-internal
+
+  codearena-db:
+    ports:
+      - "5432:5432"       # expose so you can connect with TablePlus / psql locally
+    restart: "no"
+
+  codearena-redis:
+    ports:
+      - "6379:6379"       # expose so you can inspect with redis-cli locally
+    restart: "no"
+
+networks:
+  nginx-proxy:
+    # Override the external network — in local dev it doesn't exist
+    # so we just define it as a plain bridge and ignore it
+    external: false
+    driver: bridge
+  codearena-internal:
+    driver: bridge

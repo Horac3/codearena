@@ -1,0 +1,89 @@
+# .github/workflows/question-pr.yml
+# Triggered specifically on PRs that touch the questions/ directory.
+# Adds labels, runs validation, and notifies the review system.
+
+name: Question PR Review
+
+on:
+  pull_request:
+    paths:
+      - 'questions/**'
+
+jobs:
+  validate-and-label:
+    name: Validate and label question PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+
+      - name: Validate changed question files
+        id: validate
+        run: |
+          # Only validate files changed in this PR
+          CHANGED=$(git diff --name-only origin/main...HEAD -- 'questions/**/*.json' | grep -v solutions | tr '\n' ' ')
+          echo "Changed files: $CHANGED"
+          if [ -n "$CHANGED" ]; then
+            npx ts-node packages/question-schema/src/validate-cli.ts $CHANGED
+          fi
+
+      - name: Test solutions for changed coding challenges
+        run: |
+          CHANGED=$(git diff --name-only origin/main...HEAD -- 'questions/coding/*.json' | tr '\n' ' ')
+          if [ -n "$CHANGED" ]; then
+            node .github/scripts/test-solutions.js
+          fi
+
+      - name: Detect question topics and auto-label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const changed = execSync('git diff --name-only origin/main...HEAD -- questions/').toString().trim().split('\n');
+
+            const labels = new Set(['question-contribution']);
+
+            for (const file of changed) {
+              if (file.includes('/dsa/'))             labels.add('topic:dsa');
+              if (file.includes('/systems/'))         labels.add('topic:systems');
+              if (file.includes('/cs-fundamentals/')) labels.add('topic:cs-fundamentals');
+              if (file.includes('/networking/'))      labels.add('topic:networking');
+              if (file.includes('/coding/'))          labels.add('type:coding-challenge');
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+              labels: [...labels],
+            });
+
+      - name: Post review checklist comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `## 📋 Question Review Checklist
+
+            Thank you for contributing a question to CodeArena! A community reviewer will be assigned shortly.
+
+            Reviewers — please verify each item:
+
+            - [ ] **Stem is clear and unambiguous** — no way to misinterpret the question
+            - [ ] **Correct answer is unambiguously correct** — no edge cases where another option could be right
+            - [ ] **Distractors are plausible** — wrong answers should seem reasonable, not obviously silly
+            - [ ] **Explanation teaches something** — not just "the answer is B", but why
+            - [ ] **Test coverage** (coding challenges only) — ≥4 test cases covering happy path, edge cases, and performance
+            - [ ] **Difficulty rating feels accurate** — 1=junior, 2=mid, 3=senior
+
+            ---
+            *CI has validated the schema. This PR will be merged once two community reviewers approve.*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

@@ -1,0 +1,21 @@
+# .github/workflows/weekly-competition.yml
+# Announces the upcoming weekly competition theme every Monday.
+# The actual open/close is handled by cron jobs in the NestJS API.
+# This workflow just posts a GitHub Discussion notice for community awareness.
+
+name: Weekly Competition Announcement
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'   # every Monday at 08:00 UTC
+  workflow_dispatch:
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Post weekly announcement
+        run: |
+          echo "Weekly competition opens Thursday — check the app for this week's theme."
+          # Extend this step to post to Slack, Discord, or GitHub Discussions

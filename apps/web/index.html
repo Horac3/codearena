@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>CodeArena ⚡ — Keep Your Dev Skills Sharp</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg: #0d0f14; --bg2: #13161e; --border: #1e2330;
+      --green: #00e5a0; --amber: #f5a623; --text: #e2e8f0;
+      --muted: #6b7280; --mono: 'JetBrains Mono', monospace;
+      --sans: 'Space Grotesk', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+    /* Hero */
+    .hero { max-width: 680px; margin: 0 auto; padding: 80px 24px 60px; text-align: center; }
+    .badge { display: inline-block; font-family: var(--mono); font-size: 11px; color: var(--green); border: 1px solid var(--green); border-radius: 20px; padding: 4px 14px; margin-bottom: 24px; letter-spacing: 0.08em; }
+    h1 { font-size: clamp(32px, 6vw, 52px); font-weight: 700; line-height: 1.15; margin-bottom: 20px; }
+    h1 span { color: var(--green); }
+    .sub { font-size: 17px; color: var(--muted); line-height: 1.7; max-width: 500px; margin: 0 auto 36px; }
+    .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none; transition: opacity 0.15s; border: none; }
+    .btn-primary { background: var(--green); color: #0d0f14; }
+    .btn-ghost { background: none; border: 1px solid var(--border); color: var(--text); }
+    .btn:hover { opacity: 0.85; }
+
+    /* Features */
+    .features { max-width: 900px; margin: 0 auto; padding: 60px 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+    .feature { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+    .feature-icon { font-size: 28px; margin-bottom: 12px; }
+    .feature h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+    .feature p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+    /* Duel invite banner */
+    .invite-banner { display: none; max-width: 480px; margin: 0 auto; padding: 24px; background: var(--bg2); border: 1px solid var(--green); border-radius: 12px; text-align: center; }
+    .invite-banner.visible { display: block; }
+    .invite-banner h2 { font-size: 20px; margin-bottom: 8px; }
+    .invite-banner p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+    .challenger { font-family: var(--mono); font-size: 15px; color: var(--green); margin-bottom: 16px; }
+
+    footer { text-align: center; padding: 40px 24px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); margin-top: 60px; }
+    footer a { color: var(--green); text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<!-- Duel invite banner — shown when URL has /duel/:token -->
+<div class="invite-banner" id="invite-banner">
+  <div class="feature-icon">⚔️</div>
+  <h2>You've been challenged!</h2>
+  <div class="challenger" id="challenger-name">Loading…</div>
+  <p>Accept this duel to compete head-to-head in CodeArena. You'll need the VS Code extension.</p>
+  <div class="cta-row" style="justify-content:center;margin-top:0;">
+    <a class="btn btn-primary" id="accept-btn" href="#">Accept in VS Code</a>
+    <a class="btn btn-ghost" href="https://marketplace.visualstudio.com/items?itemName=codearena.codearena" target="_blank">Get the extension first</a>
+  </div>
+</div>
+
+<div class="hero" id="main-hero">
+  <div class="badge">OPEN SOURCE · VS CODE EXTENSION</div>
+  <h1>Keep your dev skills<br/><span>razor sharp</span></h1>
+  <p class="sub">Daily challenges, real-time duels, and leaderboards — all without leaving your editor. DSA, system design, CS fundamentals.</p>
+  <div class="cta-row">
+    <a class="btn btn-primary" href="https://marketplace.visualstudio.com/items?itemName=codearena.codearena" target="_blank">
+      Install for VS Code
+    </a>
+    <a class="btn btn-ghost" href="https://github.com/your-org/codearena" target="_blank">
+      View on GitHub
+    </a>
+  </div>
+</div>
+
+<div class="features">
+  <div class="feature">
+    <div class="feature-icon">🔥</div>
+    <h3>Daily Blitz</h3>
+    <p>5 questions every day, seeded so everyone competes on the same set. Build your streak, earn XP.</p>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">⚔️</div>
+    <h3>Duel Mode</h3>
+    <p>Challenge any developer to a real-time head-to-head match. Share an invite link, first to 7 wins.</p>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">🏆</div>
+    <h3>Weekly League</h3>
+    <p>Compete on a weekly leaderboard that resets every Monday. Anyone can rise to the top.</p>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">🧪</div>
+    <h3>Coding Challenges</h3>
+    <p>Submit real code. Tests run against your solution like Leetcode — pass rate shows instantly.</p>
+  </div>
+</div>
+
+<footer>
+  CodeArena is open source — <a href="https://github.com/your-org/codearena">contribute questions on GitHub</a>
+</footer>
+
+<script>
+  // Handle /duel/:token invite pages
+  const path = window.location.pathname;
+  const match = path.match(/^\/duel\/([a-f0-9]+)$/);
+
+  if (match) {
+    const token = match[1];
+    document.getElementById('main-hero').style.display = 'none';
+    const banner = document.getElementById('invite-banner');
+    banner.classList.add('visible');
+
+    // Set the VS Code deep link
+    document.getElementById('accept-btn').href = `vscode://codearena.codearena/duel/${token}`;
+
+    // Fetch invite details
+    fetch(`/api/duels/invite/${token}`)  // proxied by nginx to codearena-api
+      .then(r => r.json())
+      .then(d => {
+        document.getElementById('challenger-name').textContent =
+          `${d.playerA?.username ?? 'A developer'} wants to duel you`;
+      })
+      .catch(() => {
+        document.getElementById('challenger-name').textContent = 'A developer wants to duel you';
+      });
+  }
+
+  // Handle /auth/success?token=xxx (web OAuth callback)
+  if (window.location.pathname === '/auth/success') {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token) {
+      window.location.href = `vscode://codearena.codearena/auth?token=${token}`;
+    }
+  }
+</script>
+</body>
+</html>

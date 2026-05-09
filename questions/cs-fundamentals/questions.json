@@ -1,0 +1,87 @@
+[
+  {
+    "id": "cs-memory-001",
+    "type": "mcq",
+    "topic": "cs-fundamentals",
+    "difficulty": 1,
+    "stem": "What is the difference between the stack and the heap in memory management?",
+    "explanation": "The stack holds function call frames, local variables, and return addresses — it is managed automatically (LIFO) and is fast but limited in size. The heap holds dynamically allocated memory that persists beyond a function call and must be manually managed (or garbage collected). Stack overflows occur when call depth is too deep; heap fragmentation and memory leaks occur with improper heap management.",
+    "options": [
+      "Stack is for global variables; heap is for local variables",
+      "Stack is automatically managed, LIFO, fast, limited; heap is dynamic, manually managed, larger",
+      "Stack and heap are the same — different OS terminology",
+      "Stack is used by the OS; heap is used only by user programs"
+    ],
+    "answer": 1,
+    "tags": ["memory", "stack", "heap", "os"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "cs-process-001",
+    "type": "mcq",
+    "topic": "cs-fundamentals",
+    "difficulty": 2,
+    "stem": "What is the key difference between a process and a thread?",
+    "explanation": "A process has its own isolated memory space, file handles, and OS resources. Threads within the same process share memory and resources, making communication between threads cheaper but also riskier (race conditions, data corruption). Context switching between processes is more expensive than between threads.",
+    "options": [
+      "Processes are faster than threads",
+      "A thread has its own memory space; a process shares memory",
+      "A process has its own memory space; threads share memory within a process",
+      "They are identical — 'thread' is a newer term for 'process'"
+    ],
+    "answer": 2,
+    "tags": ["os", "concurrency", "processes", "threads"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "cs-concurrency-001",
+    "type": "mcq",
+    "topic": "cs-fundamentals",
+    "difficulty": 2,
+    "stem": "Two threads both read a shared counter (value = 5), increment it, and write back. What is the likely result, and what is this problem called?",
+    "explanation": "Both threads read 5, each computes 6, and both write 6. The final value is 6 instead of 7 — one increment is lost. This is a race condition. The fix is a mutex/lock or an atomic increment operation to make read-modify-write atomic.",
+    "options": [
+      "Counter = 7. This is normal concurrent behaviour.",
+      "Counter = 6. This is a race condition — one increment is lost.",
+      "Counter = 10. Both increments are doubled.",
+      "The program crashes with a segfault."
+    ],
+    "answer": 1,
+    "tags": ["concurrency", "race-condition", "threads", "mutex"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "cs-networking-001",
+    "type": "mcq",
+    "topic": "cs-fundamentals",
+    "difficulty": 1,
+    "stem": "What does HTTP status code 429 mean?",
+    "explanation": "429 Too Many Requests indicates the client has sent too many requests in a given time window — i.e. it has been rate-limited. The server may include a Retry-After header indicating when the client can try again.",
+    "options": [
+      "Unauthorised — missing or invalid credentials",
+      "Not Found — resource does not exist",
+      "Too Many Requests — client is being rate-limited",
+      "Internal Server Error — something went wrong on the server"
+    ],
+    "answer": 2,
+    "tags": ["http", "status-codes", "rate-limiting"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "cs-solid-001",
+    "type": "mcq",
+    "topic": "cs-fundamentals",
+    "difficulty": 2,
+    "stem": "A class has methods for user authentication, sending emails, and generating reports. Which SOLID principle does this violate?",
+    "explanation": "The Single Responsibility Principle (SRP) states that a class should have only one reason to change. A class handling auth, email, and reporting has three distinct responsibilities — changes to any one of them risk breaking the others. Each concern should be its own class.",
+    "options": [
+      "Open/Closed Principle",
+      "Single Responsibility Principle",
+      "Liskov Substitution Principle",
+      "Dependency Inversion Principle"
+    ],
+    "answer": 1,
+    "tags": ["solid", "srp", "design-principles"],
+    "author": "codearena-core"
+  }
+]

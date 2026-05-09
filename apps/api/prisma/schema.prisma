@@ -1,0 +1,346 @@
+// apps/api/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum DuelStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  ABANDONED
+  EXPIRED
+}
+
+enum ReviewerStatus {
+  SHADOW
+  ACTIVE
+  SUSPENDED
+}
+
+enum ContributionStatus {
+  DRAFT
+  NEEDS_REVIEW
+  IN_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  MERGED
+  REJECTED
+}
+
+enum BadgeType {
+  RANK_UP
+  ULTIMATE_GEEK
+  QUESTION_AUTHOR
+  CONTENT_CREATOR
+  CURRICULUM_ARCHITECT
+  COMMUNITY_REVIEWER
+  FOUNDING_REVIEWER
+  WEEKLY_CHAMPION
+  WEEKLY_PODIUM
+  WEEKLY_TOP_10
+  STREAK_7
+  STREAK_30
+  STREAK_100
+  FIRST_DUEL
+  DUEL_MASTER
+  ULTIMATE_DUEL
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id              String          @id @default(uuid())
+  githubId        String          @unique
+  username        String          @unique
+  avatarUrl       String?
+  email           String?
+  rankPoints      Int             @default(0)
+  rankTier        Int             @default(1)
+  weeklyXp        Int             @default(0)
+  streak          Int             @default(0)
+  longestStreak   Int             @default(0)
+  lastActiveAt    DateTime?
+  duelsPlayed     Int             @default(0)
+  duelsWon        Int             @default(0)
+  duelsAtTier     Int             @default(0)
+  isReviewer      Boolean         @default(false)
+  reviewerStatus  ReviewerStatus?
+  reviewerSince   DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  answers              Answer[]
+  duelsAsA             Duel[]               @relation("PlayerA")
+  duelsAsB             Duel[]               @relation("PlayerB")
+  badges               Badge[]
+  dailySubmissions     DailySubmission[]
+  weeklySubmissions    WeeklySubmission[]
+  contributions        Contribution[]
+  reviews              ContributionReview[]
+  shadowReviews        ShadowReview[]
+  notifications        Notification[]
+  rankEvents           RankEvent[]
+
+  @@index([rankPoints])
+  @@index([weeklyXp])
+  @@index([rankTier])
+}
+
+model RankEvent {
+  id          String   @id @default(uuid())
+  userId      String
+  delta       Int
+  reason      String
+  sourceId    String?
+  rankBefore  Int
+  rankAfter   Int
+  tierBefore  Int
+  tierAfter   Int
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Badge {
+  id        String    @id @default(uuid())
+  userId    String
+  type      BadgeType
+  label     String
+  awardedAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DAILY BLITZ
+// ─────────────────────────────────────────────────────────────────────────────
+
+model DailySet {
+  date        String   @id
+  seed        String
+  questionIds String[]
+  createdAt   DateTime @default(now())
+}
+
+model DailySubmission {
+  id           String   @id @default(uuid())
+  userId       String
+  date         String
+  score        Int
+  pointsEarned Int
+  answers      Json
+  completedAt  DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, date])
+  @@index([date])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANSWERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Answer {
+  id           String   @id @default(uuid())
+  userId       String
+  questionId   String
+  correct      Boolean
+  elapsedMs    Int
+  pointsEarned Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([questionId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DUELS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Duel {
+  id              String     @id @default(uuid())
+  playerAId       String
+  playerBId       String?
+  playerARankTier Int        @default(1)
+  playerBRankTier Int?
+  topic           String
+  rounds          Int        @default(7)
+  status          DuelStatus @default(PENDING)
+  scoreA          Int        @default(0)
+  scoreB          Int        @default(0)
+  pointsAwardedA  Int?
+  pointsAwardedB  Int?
+  winnerId        String?
+  inviteToken     String     @unique
+  expiresAt       DateTime
+  startedAt       DateTime?
+  endedAt         DateTime?
+  createdAt       DateTime   @default(now())
+
+  playerA         User       @relation("PlayerA", fields: [playerAId], references: [id])
+  playerB         User?      @relation("PlayerB", fields: [playerBId], references: [id])
+
+  @@index([playerAId])
+  @@index([playerBId])
+  @@index([inviteToken])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WEEKLY COMPETITION
+// ─────────────────────────────────────────────────────────────────────────────
+
+model WeeklyCompetition {
+  id          String   @id @default(uuid())
+  weekStart   DateTime
+  weekEnd     DateTime
+  theme       String
+  themeLabel  String
+  questionIds String[]
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  submissions WeeklySubmission[]
+
+  @@index([weekStart])
+  @@index([isActive])
+}
+
+model WeeklySubmission {
+  id            String   @id @default(uuid())
+  userId        String
+  competitionId String
+  score         Int
+  pointsEarned  Int
+  finalRank     Int?
+  answers       Json
+  submittedAt   DateTime @default(now())
+
+  user          User              @relation(fields: [userId], references: [id])
+  competition   WeeklyCompetition @relation(fields: [competitionId], references: [id])
+
+  @@unique([userId, competitionId])
+  @@index([competitionId, score])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTRIBUTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Contribution {
+  id               String             @id @default(uuid())
+  authorId         String
+  questionId       String             @unique
+  prNumber         Int?
+  prUrl            String?
+  status           ContributionStatus @default(DRAFT)
+  questionSnapshot Json
+  ciPassed         Boolean            @default(false)
+  reviewerCount    Int                @default(0)
+  pointsAwarded    Int                @default(0)
+  mergedAt         DateTime?
+  rejectedAt       DateTime?
+  rejectionReason  String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  author           User               @relation(fields: [authorId], references: [id])
+  reviews          ContributionReview[]
+  shadowReviews    ShadowReview[]
+
+  @@index([authorId])
+  @@index([status])
+}
+
+model ContributionReview {
+  id               String       @id @default(uuid())
+  contributionId   String
+  reviewerId       String
+  approved         Boolean
+  checklistResults Json
+  feedback         String?
+  pointsEarned     Int          @default(0)
+  createdAt        DateTime     @default(now())
+
+  contribution     Contribution @relation(fields: [contributionId], references: [id])
+  reviewer         User         @relation(fields: [reviewerId], references: [id])
+
+  @@unique([contributionId, reviewerId])
+  @@index([reviewerId])
+}
+
+model ShadowReview {
+  id               String       @id @default(uuid())
+  contributionId   String
+  candidateId      String
+  approved         Boolean
+  checklistResults Json
+  feedback         String?
+  maintainerVerdict Boolean?
+  accuracyMatch    Boolean?
+  createdAt        DateTime     @default(now())
+
+  contribution     Contribution @relation(fields: [contributionId], references: [id])
+  candidate        User         @relation(fields: [candidateId], references: [id])
+
+  @@unique([contributionId, candidateId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXECUTION JOBS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ExecutionJob {
+  id          String   @id @default(uuid())
+  userId      String
+  questionId  String
+  language    String
+  status      String
+  bullJobId   String?
+  result      Json?
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+
+  @@index([userId])
+  @@index([status])
+  @@index([bullJobId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, read])
+}

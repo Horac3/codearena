@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
+dist/
+build/
+*.js.map
+*.d.ts.map
+
+# Environment
+.env
+.env.local
+.env.*.local
+# Keep the examples
+!.env.example
+!.env.local.example
+
+# Reference solutions — kept private, never committed
+questions/coding/solutions/
+
+# VS Code extension compiled output
+apps/extension/dist/
+apps/extension/*.vsix
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# Prisma
+apps/api/prisma/migrations/dev.db

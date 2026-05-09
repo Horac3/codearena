@@ -1,0 +1,22 @@
+{
+  "name": "codearena",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CodeArena — VS Code extension to keep developers sharp",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=apps/api",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "build:api": "npm run build --workspace=apps/api",
+    "build:extension": "npm run build --workspace=apps/extension",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

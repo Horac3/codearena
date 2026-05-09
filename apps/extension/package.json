@@ -1,0 +1,92 @@
+{
+  "name": "codearena",
+  "displayName": "CodeArena ⚡",
+  "description": "Daily challenges, real-time duels and leaderboards to keep your dev skills sharp",
+  "version": "0.1.0",
+  "publisher": "codearena",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/your-org/codearena" },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Education", "Other"],
+  "keywords": ["quiz", "dsa", "system design", "competitive", "pomodoro"],
+  "icon": "media/icon.png",
+  "activationEvents": ["onStartupFinished", "onUri"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "codearena", "title": "CodeArena", "icon": "media/arena-icon.svg" }
+      ]
+    },
+    "views": {
+      "codearena": [
+        { "id": "codearena.menu",        "name": "Menu",        "type": "tree" },
+        { "id": "codearena.leaderboard", "name": "Leaderboard", "type": "tree" }
+      ]
+    },
+    "commands": [
+      { "command": "codearena.openDaily",      "title": "CodeArena: Open Daily Blitz" },
+      { "command": "codearena.openDuel",       "title": "CodeArena: Open Duel Mode" },
+      { "command": "codearena.openPractice",   "title": "CodeArena: Open Practice" },
+      { "command": "codearena.openWeekly",     "title": "CodeArena: Open Weekly Competition" },
+      { "command": "codearena.openRank",       "title": "CodeArena: View My Rank" },
+      { "command": "codearena.login",          "title": "CodeArena: Sign in with GitHub" },
+      { "command": "codearena.logout",         "title": "CodeArena: Sign out" },
+      { "command": "codearena.pomodoroControl","title": "CodeArena: Pomodoro Control" },
+      { "command": "codearena.pomodoroStart",  "title": "CodeArena: Start Pomodoro" },
+      { "command": "codearena.pomodoroReset",  "title": "CodeArena: Reset Pomodoro" }
+    ],
+    "configuration": {
+      "title": "CodeArena",
+      "properties": {
+        "codearena.apiUrl": {
+          "type": "string",
+          "default": "https://api.codearena.dev",
+          "description": "API base URL — change to self-host"
+        },
+        "codearena.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show streak and rank in the status bar"
+        },
+        "codearena.pomodoro.workMinutes": {
+          "type": "number",
+          "default": 25,
+          "description": "Pomodoro work session duration in minutes"
+        },
+        "codearena.pomodoro.breakMinutes": {
+          "type": "number",
+          "default": 5,
+          "description": "Short break duration in minutes"
+        },
+        "codearena.pomodoro.longBreakMinutes": {
+          "type": "number",
+          "default": 15,
+          "description": "Long break duration in minutes"
+        },
+        "codearena.pomodoro.autoPromptBlitz": {
+          "type": "boolean",
+          "default": true,
+          "description": "Prompt Daily Blitz when a break starts"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "lint": "eslint src --ext .ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "esbuild": "^0.20.0",
+    "@vscode/test-electron": "^2.3.0",
+    "eslint": "^8.0.0"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.7.0"
+  }
+}

@@ -1,0 +1,126 @@
+[
+  {
+    "id": "net-http-001",
+    "type": "mcq",
+    "topic": "networking",
+    "difficulty": 1,
+    "stem": "What is the difference between HTTP/1.1 and HTTP/2?",
+    "explanation": "HTTP/2 introduced multiplexing — multiple requests can share a single TCP connection simultaneously, eliminating the head-of-line blocking problem in HTTP/1.1. It also adds header compression (HPACK) and server push. HTTP/1.1 opens a new connection per request or uses keep-alive for sequential requests.",
+    "options": [
+      "HTTP/2 uses UDP instead of TCP",
+      "HTTP/2 adds multiplexing, header compression, and server push over a single connection",
+      "HTTP/2 requires TLS while HTTP/1.1 does not",
+      "HTTP/2 only works for API calls, not web pages"
+    ],
+    "answer": 1,
+    "tags": ["http", "http2", "multiplexing", "protocols"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "net-tcp-001",
+    "type": "mcq",
+    "topic": "networking",
+    "difficulty": 2,
+    "stem": "What is the TCP three-way handshake sequence?",
+    "explanation": "TCP establishes a connection with three steps: (1) Client sends SYN — 'I want to connect, my sequence number is X'. (2) Server responds SYN-ACK — 'Acknowledged X, my sequence number is Y'. (3) Client sends ACK — 'Acknowledged Y'. After this the connection is established and data can flow.",
+    "options": [
+      "SYN → ACK → FIN",
+      "SYN → SYN-ACK → ACK",
+      "HELLO → HELLO-ACK → READY",
+      "CONNECT → ACCEPT → BEGIN"
+    ],
+    "answer": 1,
+    "tags": ["tcp", "handshake", "connection", "protocols"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "net-dns-001",
+    "type": "mcq",
+    "topic": "networking",
+    "difficulty": 1,
+    "stem": "What does DNS stand for, and what is its primary purpose?",
+    "explanation": "DNS stands for Domain Name System. Its primary purpose is to translate human-readable domain names (like codearena.dev) into IP addresses (like 192.168.1.1) that computers use to identify each other on a network. Without DNS, every URL would need to be an IP address.",
+    "options": [
+      "Dynamic Network Service — assigns IP addresses to devices",
+      "Domain Name System — translates domain names to IP addresses",
+      "Distributed Node System — routes packets between networks",
+      "Data Network Standard — encrypts web traffic"
+    ],
+    "answer": 1,
+    "tags": ["dns", "networking-basics", "domain-names"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "net-ws-001",
+    "type": "mcq",
+    "topic": "networking",
+    "difficulty": 2,
+    "stem": "How does a WebSocket connection differ from a standard HTTP request?",
+    "explanation": "HTTP is a request-response protocol — the client sends a request, the server responds, and the connection closes. WebSocket starts as an HTTP request (the upgrade handshake) but then upgrades to a persistent, full-duplex connection. Both client and server can send messages at any time without a new request. This is why duel mode in CodeArena uses WebSockets — both players need to receive question pushes simultaneously.",
+    "options": [
+      "WebSocket uses UDP while HTTP uses TCP",
+      "WebSocket is HTTP over SSL — no functional difference",
+      "WebSocket starts as HTTP then upgrades to a persistent full-duplex connection",
+      "WebSocket only works on port 443"
+    ],
+    "answer": 2,
+    "tags": ["websocket", "http", "real-time", "full-duplex"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "net-tls-001",
+    "type": "mcq",
+    "topic": "networking",
+    "difficulty": 2,
+    "stem": "At what layer of the OSI model does TLS operate?",
+    "explanation": "TLS (Transport Layer Security) operates at the Session layer (Layer 5) of the OSI model, though it is often described as sitting between the Transport layer (Layer 4 — TCP) and the Application layer (Layer 7 — HTTP). It provides encryption, authentication, and integrity on top of TCP before application data is exchanged.",
+    "options": [
+      "Layer 3 — Network layer",
+      "Layer 4 — Transport layer",
+      "Between Layer 4 and Layer 7 (Session/Presentation)",
+      "Layer 7 — Application layer only"
+    ],
+    "answer": 2,
+    "tags": ["tls", "ssl", "osi-model", "security"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "net-trace-001",
+    "type": "trace",
+    "topic": "networking",
+    "difficulty": 2,
+    "stem": "A developer makes a fetch() call to https://api.codearena.dev/questions/daily. In what order do these steps happen?",
+    "code": "Steps:\nA. TLS handshake\nB. TCP three-way handshake\nC. DNS resolution (api.codearena.dev → IP)\nD. HTTP GET request sent\nE. Browser checks local DNS cache",
+    "language": "javascript",
+    "explanation": "The order is: E (check local DNS cache) → C (DNS resolution if cache miss) → B (TCP handshake to establish connection) → A (TLS handshake to secure the connection) → D (HTTP request sent). DNS must happen before TCP because you need the IP to open a socket. TCP before TLS because TLS runs on top of TCP. TLS before HTTP because HTTPS requires an encrypted channel.",
+    "options": [
+      "C → B → A → D → E",
+      "E → C → B → A → D",
+      "B → A → C → E → D",
+      "E → B → C → A → D"
+    ],
+    "answer": 1,
+    "tags": ["http", "dns", "tcp", "tls", "request-lifecycle"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "net-bughunt-001",
+    "type": "bug-hunt",
+    "topic": "networking",
+    "difficulty": 2,
+    "stem": "This Express server is supposed to handle CORS for the CodeArena web client. What is wrong?",
+    "code": "app.use((req, res, next) => {\n  res.setHeader('Access-Control-Allow-Origin', req.headers.origin);\n  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH');\n  next();\n});\n\napp.options('*', (req, res) => {\n  res.sendStatus(200);\n});",
+    "language": "javascript",
+    "explanation": "The bug is reflecting req.headers.origin blindly — this allows ANY origin to make cross-origin requests, which is a security vulnerability. It should validate origin against a whitelist (e.g. ['https://codearena.dev', 'http://localhost:5173']) before reflecting it. Additionally, the preflight OPTIONS handler is missing the CORS headers — it returns 200 but without the headers the browser still blocks the request.",
+    "options": [
+      "app.use() should be app.all()",
+      "The origin header is being reflected without validation, allowing any origin — and OPTIONS response is missing CORS headers",
+      "sendStatus(200) should be sendStatus(204)",
+      "Access-Control-Allow-Methods is missing DELETE"
+    ],
+    "answer": 1,
+    "fixedCode": "const ALLOWED_ORIGINS = ['https://codearena.dev', 'http://localhost:5173'];\n\napp.use((req, res, next) => {\n  const origin = req.headers.origin;\n  if (ALLOWED_ORIGINS.includes(origin)) {\n    res.setHeader('Access-Control-Allow-Origin', origin);\n  }\n  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH');\n  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');\n  next();\n});\n\napp.options('*', (req, res) => {\n  const origin = req.headers.origin;\n  if (ALLOWED_ORIGINS.includes(origin)) {\n    res.setHeader('Access-Control-Allow-Origin', origin);\n  }\n  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH');\n  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');\n  res.sendStatus(204);\n});",
+    "tags": ["cors", "security", "express", "http-headers"],
+    "author": "codearena-core"
+  }
+]

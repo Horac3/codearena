@@ -1,0 +1,71 @@
+# .github/workflows/ci.yml
+# Runs on every PR and every push to main/develop.
+# Four jobs run — question validation, solution testing, TypeScript builds,
+# and a Docker build smoke-test on main only.
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  validate-questions:
+    name: Validate question bank
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - name: Build question-schema
+        run: npx tsc --project packages/question-schema/tsconfig.json
+      - name: Validate all question JSON files
+        run: node -e "
+          const {execSync}=require('child_process');
+          execSync('node -r ts-node/register packages/question-schema/src/validate-cli.ts questions/',{stdio:'inherit'});
+        " || npx ts-node --project packages/question-schema/tsconfig.json packages/question-schema/src/validate-cli.ts questions/
+      - name: Check for duplicate question IDs
+        run: node .github/scripts/check-duplicates.js
+
+  test-solutions:
+    name: Test coding challenge solutions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - run: node .github/scripts/test-solutions.js
+
+  build:
+    name: Build & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - name: Build question-schema
+        run: npx tsc --project packages/question-schema/tsconfig.json
+      - name: Type-check API
+        working-directory: apps/api
+        run: npx tsc --noEmit
+      - name: Type-check extension
+        working-directory: apps/extension
+        run: npx tsc --noEmit
+      - name: Build extension bundle
+        working-directory: apps/extension
+        run: npm run build
+
+  docker-build:
+    name: Docker smoke-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f apps/api/Dockerfile -t codearena-api:ci .
+      - run: docker build -f apps/web/Dockerfile -t codearena-web:ci apps/web/

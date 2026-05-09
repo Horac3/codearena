@@ -1,0 +1,28 @@
+{
+  "id": "coding-arrays-001",
+  "type": "coding",
+  "topic": "dsa",
+  "difficulty": 1,
+  "stem": "Given an array of integers `nums` and an integer `target`, return the indices of the two numbers that add up to `target`. You may assume exactly one solution exists and you may not use the same element twice.",
+  "functionSignature": {
+    "javascript": "function twoSum(nums, target) {\n  // your code here\n}",
+    "typescript": "function twoSum(nums: number[], target: number): number[] {\n  // your code here\n}",
+    "python": "def two_sum(nums: list[int], target: int) -> list[int]:\n    # your code here\n    pass"
+  },
+  "constraints": [
+    "2 <= nums.length <= 10^4",
+    "-10^9 <= nums[i] <= 10^9",
+    "Exactly one solution exists",
+    "You may not use the same element twice"
+  ],
+  "examples": [
+    { "input": "nums = [2,7,11,15], target = 9", "output": "[0,1]" },
+    { "input": "nums = [3,2,4], target = 6",    "output": "[1,2]" },
+    { "input": "nums = [3,3], target = 6",       "output": "[0,1]" }
+  ],
+  "explanation": "The optimal approach uses a hash map. Iterate through the array — for each element, check if its complement (target - current) is already in the map. If so, return the stored index and current index. If not, add the current element and its index to the map. This achieves O(n) time and O(n) space.",
+  "tags": ["arrays", "hash-map", "two-pointers"],
+  "testFile": "coding-arrays-001.test.js",
+  "timeLimit": 5000,
+  "author": "codearena-core"
+}

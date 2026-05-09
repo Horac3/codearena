@@ -1,0 +1,99 @@
+[
+  {
+    "id": "systems-caching-001",
+    "type": "mcq",
+    "topic": "systems",
+    "difficulty": 2,
+    "stem": "Your API reads user profile data on every request. DB latency is 180ms. You want sub-10ms. Which strategy is most appropriate?",
+    "explanation": "Redis with the cache-aside pattern is the right tool: on a cache miss, fetch from DB and write to Redis with a TTL; subsequent reads hit Redis in ~1ms. A read replica reduces DB load but doesn't eliminate the 180ms latency. NoSQL and connection pools address different bottlenecks.",
+    "options": [
+      "Add a PostgreSQL read replica",
+      "Introduce Redis with a cache-aside pattern",
+      "Switch to a NoSQL database",
+      "Increase the database connection pool size"
+    ],
+    "answer": 1,
+    "tags": ["caching", "redis", "latency"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "systems-caching-002",
+    "type": "mcq",
+    "topic": "systems",
+    "difficulty": 3,
+    "stem": "Which cache eviction policy is best when your access pattern follows the Pareto principle — 20% of keys are accessed 80% of the time?",
+    "explanation": "LRU (Least Recently Used) is ideal for Pareto / temporal locality patterns. Frequently accessed keys stay hot in cache; infrequently accessed keys expire naturally. LFU is also good but requires more metadata. FIFO and Random ignore access frequency entirely.",
+    "options": ["FIFO (First In, First Out)", "Random replacement", "LRU (Least Recently Used)", "MRU (Most Recently Used)"],
+    "answer": 2,
+    "tags": ["caching", "eviction", "lru"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "systems-db-001",
+    "type": "mcq",
+    "topic": "systems",
+    "difficulty": 2,
+    "stem": "You're designing a system where data is written once and read millions of times (e.g. a product catalogue). What database optimisation should you prioritise?",
+    "explanation": "Read-heavy, write-rare workloads benefit most from aggressive indexing and read replicas. Indexes trade write overhead (negligible here since writes are rare) for drastically faster reads. A CDN layer is also valid for static data but is a caching strategy, not a DB optimisation.",
+    "options": [
+      "Sharding across multiple write nodes",
+      "Aggressive indexing with read replicas",
+      "Disabling write-ahead logging (WAL)",
+      "Using a queue-based write pattern"
+    ],
+    "answer": 1,
+    "tags": ["databases", "indexing", "read-heavy"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "systems-queues-001",
+    "type": "mcq",
+    "topic": "systems",
+    "difficulty": 2,
+    "stem": "A payment service needs to process transactions. What property must your message queue guarantee to avoid double-charging customers?",
+    "explanation": "Exactly-once delivery guarantees each message is processed precisely once — critical for financial transactions. At-least-once (common default) may cause duplicate processing. At-most-once may drop messages. Ordering matters for some workflows but doesn't prevent duplicates.",
+    "options": [
+      "At-most-once delivery",
+      "At-least-once delivery",
+      "Exactly-once delivery",
+      "FIFO ordering"
+    ],
+    "answer": 2,
+    "tags": ["queues", "messaging", "payments", "consistency"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "systems-cap-001",
+    "type": "mcq",
+    "topic": "systems",
+    "difficulty": 3,
+    "stem": "According to the CAP theorem, during a network partition a distributed system must choose between which two properties?",
+    "explanation": "CAP theorem: a distributed system can guarantee at most two of Consistency, Availability, and Partition tolerance. Since network partitions are unavoidable in practice, the real choice during a partition is between Consistency (return an error rather than stale data) and Availability (return best-effort data, possibly stale).",
+    "options": [
+      "Consistency and Partition tolerance",
+      "Availability and Partition tolerance",
+      "Consistency and Availability",
+      "Durability and Isolation"
+    ],
+    "answer": 2,
+    "tags": ["cap-theorem", "distributed-systems", "consistency"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "systems-scaling-001",
+    "type": "mcq",
+    "topic": "systems",
+    "difficulty": 2,
+    "stem": "What is the key difference between horizontal scaling and vertical scaling?",
+    "explanation": "Vertical scaling (scale-up) means upgrading a single machine — more CPU, RAM, or faster disks. Horizontal scaling (scale-out) means adding more machines and distributing load. Horizontal scaling has no theoretical ceiling and is more resilient to single-node failures, but requires your application to support distribution (stateless design, load balancers, etc.).",
+    "options": [
+      "Horizontal = faster CPUs; Vertical = more servers",
+      "Horizontal = adding more servers; Vertical = upgrading existing servers",
+      "They are the same — different names for the same concept",
+      "Horizontal = database scaling only; Vertical = application scaling only"
+    ],
+    "answer": 1,
+    "tags": ["scaling", "architecture", "infrastructure"],
+    "author": "codearena-core"
+  }
+]

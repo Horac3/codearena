@@ -1,0 +1,108 @@
+[
+  {
+    "id": "dsa-complexity-001",
+    "type": "mcq",
+    "topic": "dsa",
+    "difficulty": 1,
+    "stem": "What is the time complexity of accessing an element by index in an array?",
+    "explanation": "Arrays store elements in contiguous memory. Given a base address and an index, the CPU computes the exact address in one step: base + (index × element_size). No iteration needed — always O(1).",
+    "options": ["O(log n)", "O(n)", "O(1)", "O(n²)"],
+    "answer": 2,
+    "tags": ["arrays", "complexity", "fundamentals"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "dsa-complexity-002",
+    "type": "mcq",
+    "topic": "dsa",
+    "difficulty": 2,
+    "stem": "You have an unsorted array of n integers. What is the best possible worst-case time complexity for finding a specific value?",
+    "explanation": "Without any ordering, you must examine every element in the worst case (target may be the last one or absent entirely). This gives O(n). Sorting first would cost at least O(n log n) — worse than just scanning.",
+    "options": ["O(1)", "O(log n)", "O(n)", "O(n log n)"],
+    "answer": 2,
+    "tags": ["arrays", "search", "complexity"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "dsa-complexity-003",
+    "type": "mcq",
+    "topic": "dsa",
+    "difficulty": 2,
+    "stem": "What is the average-case time complexity of inserting a key into a hash map with a good hash function?",
+    "explanation": "A good hash function distributes keys uniformly, so collisions are rare. The hash is computed in O(1), the bucket is accessed in O(1), and insertion is O(1) on average. Worst case (all keys in one bucket) degrades to O(n).",
+    "options": ["O(1)", "O(log n)", "O(n)", "O(n log n)"],
+    "answer": 0,
+    "tags": ["hash-map", "complexity", "data-structures"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "dsa-bigo-001",
+    "type": "trace",
+    "topic": "dsa",
+    "difficulty": 2,
+    "stem": "What does this function print for n = 8?",
+    "code": "function mystery(n) {\n  let count = 0;\n  for (let i = 1; i < n; i *= 2) {\n    count++;\n  }\n  console.log(count);\n}",
+    "language": "javascript",
+    "explanation": "i doubles each iteration: 1 → 2 → 4 → 8 (exits). That's 3 iterations, so count = 3. This is the classic O(log n) loop pattern — the loop body runs log₂(n) times.",
+    "options": ["2", "3", "4", "8"],
+    "answer": 1,
+    "tags": ["complexity", "loops", "logarithm"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "dsa-linkedlist-001",
+    "type": "mcq",
+    "topic": "dsa",
+    "difficulty": 2,
+    "stem": "What is the time complexity of deleting a node from the middle of a singly linked list, given a pointer directly to that node?",
+    "explanation": "With a direct pointer to the node, you can copy the next node's value into it and redirect the next pointer — effectively deleting the next node instead. This is O(1). Without the pointer, finding the node would be O(n).",
+    "options": ["O(1)", "O(log n)", "O(n)", "O(n²)"],
+    "answer": 0,
+    "tags": ["linked-list", "complexity", "pointers"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "dsa-tree-001",
+    "type": "mcq",
+    "topic": "dsa",
+    "difficulty": 2,
+    "stem": "In a balanced Binary Search Tree (BST) with n nodes, what is the time complexity of search, insert, and delete?",
+    "explanation": "In a balanced BST, the height is O(log n). Every search, insert, and delete traverses at most one root-to-leaf path, so all three operations are O(log n). An unbalanced BST degrades to O(n) in the worst case.",
+    "options": ["O(1)", "O(log n)", "O(n)", "O(n log n)"],
+    "answer": 1,
+    "tags": ["trees", "bst", "complexity"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "dsa-sorting-001",
+    "type": "mcq",
+    "topic": "dsa",
+    "difficulty": 2,
+    "stem": "Which sorting algorithm has the best average-case time complexity?",
+    "explanation": "Merge sort and heap sort both guarantee O(n log n) in all cases. Quicksort also achieves O(n log n) average but O(n²) worst case. Bubble, insertion, and selection sort are all O(n²) average.",
+    "options": ["Bubble sort O(n²)", "Insertion sort O(n²)", "Merge sort O(n log n)", "Selection sort O(n²)"],
+    "answer": 2,
+    "tags": ["sorting", "complexity", "merge-sort"],
+    "author": "codearena-core"
+  },
+  {
+    "id": "dsa-bughunt-001",
+    "type": "bug-hunt",
+    "topic": "dsa",
+    "difficulty": 2,
+    "stem": "This function is supposed to reverse a string. What is the bug?",
+    "code": "function reverseString(s) {\n  let result = '';\n  for (let i = 0; i <= s.length; i++) {\n    result = s[i] + result;\n  }\n  return result;\n}",
+    "language": "javascript",
+    "explanation": "The loop condition is `i <= s.length` instead of `i < s.length`. When i equals s.length, s[i] is undefined, which gets coerced to the string 'undefined' and prepended. Fix: change `<=` to `<`.",
+    "options": [
+      "result should be initialised to null",
+      "The loop should use i <= s.length — this is correct",
+      "Loop condition should be i < s.length — off-by-one causes undefined to be appended",
+      "String concatenation should use push() instead"
+    ],
+    "answer": 2,
+    "fixedCode": "function reverseString(s) {\n  let result = '';\n  for (let i = 0; i < s.length; i++) {\n    result = s[i] + result;\n  }\n  return result;\n}",
+    "tags": ["strings", "loops", "off-by-one"],
+    "author": "codearena-core"
+  }
+]

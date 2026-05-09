@@ -1,0 +1,44 @@
+# .github/workflows/cd.yml
+# Deploys to the VPS automatically on merge to main.
+# Required GitHub Secrets:
+#   VPS_HOST     — IP or hostname of your VPS
+#   VPS_USER     — SSH user (ubuntu / root)
+#   VPS_SSH_KEY  — private SSH key with VPS access
+
+name: CD — Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/codearena
+            git pull origin main
+            docker compose build --no-cache codearena-api codearena-web
+            docker compose run --rm codearena-api \
+              npx prisma migrate deploy --schema=./prisma/schema.prisma
+            docker compose up -d --no-deps codearena-api codearena-web
+            sleep 10
+            curl -fsS http://localhost:3000/docs > /dev/null && echo "API healthy" || exit 1
+            echo "Deployment complete for ${{ github.sha }}"
+
+      - name: Notify failure
+        if: failure()
+        run: echo "Deployment failed — ${{ github.sha }}"

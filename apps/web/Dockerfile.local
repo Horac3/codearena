@@ -1,0 +1,14 @@
+# apps/web/Dockerfile.local
+# Development image — Vite dev server with HMR
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY apps/web/package*.json ./
+RUN npm ci
+
+EXPOSE 5173
+
+# Vite must bind to 0.0.0.0 to be reachable from outside the container
+CMD ["npx", "vite", "--host", "0.0.0.0"]
