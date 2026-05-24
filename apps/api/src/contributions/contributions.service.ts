@@ -435,3 +435,4 @@ export class ContributionsService {
       orderBy: { createdAt: 'asc' },
     });
   }
+}

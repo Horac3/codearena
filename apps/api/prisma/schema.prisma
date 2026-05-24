@@ -69,6 +69,8 @@ model User {
   rankPoints      Int             @default(0)
   rankTier        Int             @default(1)
   weeklyXp        Int             @default(0)
+  totalXp         Int             @default(0)
+  level           Int             @default(1)
   streak          Int             @default(0)
   longestStreak   Int             @default(0)
   lastActiveAt    DateTime?

@@ -109,14 +109,14 @@ export class DuelGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // If both players have answered (or timer expired), advance
     if (result.bothAnswered) {
-      setTimeout(async () => {
-        if (result.duelComplete) {
-          this.server.to(data.roomId).emit('DUEL_END', result.summary);
-          await this.duelService.finalizeDuel(data.roomId);
-        } else {
+      if (result.duelComplete) {
+        this.server.to(data.roomId).emit('DUEL_END', result.summary);
+        await this.duelService.finalizeDuel(data.roomId);
+      } else {
+        setTimeout(async () => {
           await this.pushNextQuestion(data.roomId);
-        }
-      }, 1500); // 1.5s to show result before next question
+        }, 1500); // 1.5s to show result before next question
+      }
     }
   }
 

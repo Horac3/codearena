@@ -97,8 +97,7 @@ export class QuestionsService {
     if (this.bank.length === 0) return [];
     // Use a seeded shuffle so everyone gets the same questions on the same day
     const rng = seedrandom(date);
-    const shuffled = [...this.bank].sort(() => rng() - 0.5);
-    return shuffled.slice(0, DAILY_SET_SIZE);
+    return this.shuffleArray(this.bank, rng).slice(0, DAILY_SET_SIZE);
   }
 
   // ── Question lookup ───────────────────────────────────────────────────────
@@ -112,7 +111,7 @@ export class QuestionsService {
   findByTopic(topic: Topic, count: number): Question[] {
     const filtered = this.bank.filter((q) => q.topic === topic);
     const rng = seedrandom(Date.now().toString());
-    return filtered.sort(() => rng() - 0.5).slice(0, count);
+    return this.shuffleArray(filtered, rng).slice(0, count);
   }
 
   findForDuel(topic: Topic | 'mixed', rounds: number): Question[] {
@@ -123,30 +122,38 @@ export class QuestionsService {
     // Exclude coding questions from duels for v1 — too slow to execute in real-time
     const eligible = pool.filter((q) => q.type !== 'coding');
     const rng = seedrandom(Date.now().toString());
-    return eligible.sort(() => rng() - 0.5).slice(0, rounds);
+    return this.shuffleArray(eligible, rng).slice(0, rounds);
   }
 
-  get bankSize(): number {
-    return this.bank.length;
+  // ── Weekly competition ──────────────────────────────────────────────────
+
+  findForWeeklyComp(topic: string, count: number): Question[] {
+    const pool = topic === 'mixed'
+      ? this.bank
+      : this.bank.filter((q) => q.topic === topic as Topic);
+
+    const eligible = pool.filter(
+      (q) => q.type !== 'coding' && q.difficulty >= 2,
+    );
+
+    const rng = seedrandom(Date.now().toString());
+    return this.shuffleArray(eligible, rng).slice(0, count);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+
+  private shuffleArray<T>(arr: T[], rng: () => number): T[] {
+    const result = [...arr];
+    for (let i = result.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+  }
 
   private todayString(): string {
     return new Date().toISOString().split('T')[0];
   }
 }
 
-  // Added for weekly competition — harder questions only (difficulty 2-3)
-  findForWeeklyComp(topic: string, count: number): any[] {
-    const pool = topic === 'mixed'
-      ? this.bank
-      : this.bank.filter((q: any) => q.topic === topic);
 
-    const eligible = pool.filter(
-      (q: any) => q.type !== 'coding' && q.difficulty >= 2,
-    );
-
-    const rng = require('seedrandom')(Date.now().toString());
-    return eligible.sort(() => rng() - 0.5).slice(0, count);
-  }

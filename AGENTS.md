@@ -1,48 +1,67 @@
 # AGENTS.md
 
-This file provides guidance to agents when working with code in this repository.
+Guidance for agents working in the CodeArena monorepo.
 
-## Build & Test Commands
+## Build & Test
 
-**Monorepo structure** — use workspace-specific commands:
-- `npm run dev:api` — starts NestJS API with hot reload
-- `npm run dev:web` — starts Vite dev server for landing page
-- `npm run build:api` — compiles NestJS to dist/
-- `npm run build:extension` — bundles VS Code extension with esbuild
-- `npm run lint` — runs ESLint across all workspaces
-- `npm run test` — runs tests across all workspaces
+```
+npm run dev:api          → nest start --watch (port 3000)
+npm run dev:web          → vite (port 5173)
+npm run build:api        → nest build → dist/
+npm run build:extension  → esbuild (not tsc), bundles to dist/extension.js
+npm run lint             → eslint --ext .ts in each workspace
+npm run test             → jest in each workspace
+```
 
-**Single test file** (from workspace root):
-- API: `cd apps/api && npm test -- path/to/file.test.ts`
-- Extension: No test suite currently exists
+**Single test file:** `cd apps/api && npx jest path/to/file.test.ts`
 
-**Question validation**:
-- `npm run validate:questions` — validates all question JSON schemas (run from root)
+**Validate question schemas:**
+```
+npx ts-node --project packages/question-schema/tsconfig.json packages/question-schema/src/validate-cli.ts questions/
+```
+Or use `check-duplicates.js` in `.github/scripts/` for duplicate ID detection.
 
-## Critical Non-Obvious Patterns
+**Type-check per workspace** (CI uses `tsc --noEmit`, not the build command):
+```
+cd apps/api       && npx tsc --noEmit
+cd apps/extension && npx tsc --noEmit
+```
 
-**Questions directory is mounted read-only** in production Docker container at `/app/questions`. The API loads all questions into memory on startup via [`QuestionsService.onModuleInit()`](apps/api/src/questions/questions.service.ts:28). Never attempt to write to this directory at runtime.
+**Build order matters:** `packages/question-schema` must be compiled (`tsc`) before API type-checking, because API's tsconfig has a path alias (`@codearena/question-schema`) pointing to its source.
 
-**All rank point changes MUST flow through [`RankingService.awardPoints()`](apps/api/src/ranking/ranking.service.ts:32)**. Direct updates to `user.rankPoints` will bypass floor protection, audit logging, and tier recalculation.
+## Repo Structure
 
-**Duel scoring is server-side only**. The answer key is stripped via [`stripAnswer()`](apps/api/src/duel/duel.service.ts) before sending questions to clients. Client-submitted `elapsedMs` is for display only — actual timing uses server receipt timestamp.
+| Path | Role |
+|---|---|
+| `apps/api/` | NestJS REST + WebSocket (`/duel` namespace) backend |
+| `apps/extension/` | VS Code extension, esbuild-bundled, entry at `src/extension.ts` |
+| `apps/web/` | Static Vite landing page + invite handler |
+| `packages/question-schema/` | Shared Question types, XP constants, CLI validator |
+| `questions/` | Community question bank (JSON), read-only in Docker |
+| `.github/workflows/ci.yml` | Source of truth for validation pipeline |
 
-**Test files for coding challenges** receive the user's submitted function as the global `solution` variable. Never import or require the solution — the execution harness injects it. See [`coding-arrays-001.test.js`](questions/coding/tests/coding-arrays-001.test.js:2) for the pattern.
+## Critical Patterns
 
-**Redis cache keys follow `resource:identifier` pattern** with explicit TTLs. Daily sets use `daily:YYYY-MM-DD` (25h TTL), duel rooms use `duel:roomId` (2h TTL), leaderboard uses `leaderboard:weekly` (5min TTL).
+- **Questions dir is mounted `:ro`** in Docker. API loads all JSON into memory on startup via `QuestionsService.onModuleInit()`. Never write to it at runtime.
+- **All rank point changes MUST flow through `RankingService.awardPoints()`** (`apps/api/src/ranking/ranking.service.ts:32`). Direct updates to `user.rankPoints` bypass floor protection, audit logging (`RankEvent`), and tier recalculation.
+- **Duel scoring is server-side only.** The answer key is stripped via `DuelService.stripAnswer()` before sending questions. Client `elapsedMs` is display-only — actual timing uses server receipt timestamp.
+- **Coding test files** receive the user's function as the global `solution` variable. Never `import`/`require` the solution — the execution harness injects it. See `questions/coding/tests/coding-arrays-001.test.js:2`.
+- **Prisma migrations run automatically** in `entrypoint.sh` on container start (`prisma migrate deploy`). Never run migrations manually in production.
+- **Redis cache keys** follow `resource:identifier` pattern with explicit TTLs. Daily sets: `daily:YYYY-MM-DD` (25h), duel rooms: `duel:roomId` (2h), leaderboard: `leaderboard:weekly` (5min).
+- **Question IDs must be globally unique** across all topics. Format: `{topic}-{subtopic}-{NNN}` (e.g., `dsa-arrays-001`). CI validates via `check-duplicates.js`.
+- **Daily set is seeded deterministically** via `seedrandom(date)` — same date = same questions worldwide. Never use random selection.
+- **Floor protection** prevents rank drops below tier minimum until 10 duels completed at current tier. Enforced in `RankingService.awardPoints()` — do not bypass.
+- **BullMQ concurrency is 2** for code execution jobs. Prevents Piston from saturating the 2-core VPS. Never increase without resource analysis.
+- **WebSocket namespace is `/duel`** (not root). Extension connects with JWT in the `auth` handshake property, not headers.
+- **Extension state lives in VS Code `globalState`** — Pomodoro timer, cached questions, auth flags. Only the JWT token uses `SecretStorage`.
+- **Docker resource limits in `docker-compose.yml` are mandatory.** VPS has 4GB RAM / 2 cores. Removing limits will cause OOM kills (exit code 137).
+- **No Prettier config** — only ESLint for formatting.
 
-**Prisma migrations are run automatically** via [`entrypoint.sh`](apps/api/entrypoint.sh) on container startup. Never run migrations manually in production — the CD pipeline handles this.
+## Local Dev Quickstart
 
-**WebSocket namespace is `/duel`** not root. Extension connects to `wss://api.codearena.dev/duel` with JWT in `auth` handshake property, not headers.
+1. `docker compose -f docker-compose.yml -f docker-compose.local.yml up -d` (starts Postgres + Redis)
+2. Set up a GitHub OAuth App (callback: `http://localhost:3000/auth/github/callback`), fill `.env.local`
+3. `npm run dev:api` / `npm run dev:web`
+4. Extension: open `apps/extension/` in VS Code, F5 launch
 
-**BullMQ concurrency is 2** for code execution jobs. This prevents Piston from saturating CPU. Never increase without VPS resource analysis.
-
-**Floor protection prevents rank drops** until 10 duels completed at current tier. This is enforced in [`RankingService.awardPoints()`](apps/api/src/ranking/ranking.service.ts:48) — do not bypass.
-
-**Question IDs must be globally unique** across all topics. Use format `{topic}-{subtopic}-{NNN}` (e.g., `dsa-arrays-001`). CI validates uniqueness.
-
-**Daily set is seeded deterministically** using date as seed in [`seedDailySet()`](apps/api/src/questions/questions.service.ts:72). Same date = same questions worldwide. Never use random selection for daily sets.
-
-**Extension state lives in VS Code `globalState`** (encrypted key-value store), not server. Pomodoro timer, cached questions, and auth flags are all local. Only JWT token is in `SecretStorage`.
-
-**Docker resource limits are mandatory** in [`docker-compose.yml`](docker-compose.yml:31). VPS has 4GB RAM / 2 cores. Removing limits will cause OOM kills.
+API Swagger docs at `http://localhost:3000/docs`.

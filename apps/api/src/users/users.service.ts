@@ -43,9 +43,11 @@ export class UsersService {
     }
     // daysSinceLast === 0 → same day, no change
 
+    const longestStreak = Math.max(streak, user.longestStreak);
+
     return this.prisma.user.update({
       where: { id: userId },
-      data: { streak, lastActiveAt: now },
+      data: { streak, longestStreak, lastActiveAt: now },
     });
   }
 
@@ -60,10 +62,11 @@ export class UsersService {
     // Level up: every 1000 XP is a level
     const newLevel = Math.floor(user.totalXp / 1000) + 1;
     if (newLevel !== user.level) {
-      await this.prisma.user.update({
+      const updated = await this.prisma.user.update({
         where: { id: userId },
         data: { level: newLevel },
       });
+      return updated;
     }
     return user;
   }

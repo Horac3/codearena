@@ -6,6 +6,7 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { QuestionsService } from '../questions/questions.service';
+import { RankingService } from '../ranking/ranking.service';
 import { Question, XP } from '@codearena/question-schema';
 
 // ── In-memory room state (mirrored to Redis for multi-instance support) ──────
@@ -34,12 +35,14 @@ const ROOM_TTL_SECONDS = 60 * 60 * 2; // 2 hours max per duel
 export class DuelService {
   private readonly logger = new Logger(DuelService.name);
   private rooms = new Map<string, DuelRoom>(); // local cache
+  private roomLocks = new Set<string>(); // per-room mutex for race prevention
 
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
     private questions: QuestionsService,
     private config: ConfigService,
+    private ranking: RankingService,
   ) {}
 
   // ── Create ────────────────────────────────────────────────────────────────
@@ -138,44 +141,46 @@ export class DuelService {
     choice: number,
     elapsedMs: number,
   ) {
-    const room = await this.getRoom(roomId);
-    if (!room) return null;
+    return this.withRoomLock(roomId, async () => {
+      const room = await this.getRoom(roomId);
+      if (!room) return null;
 
-    const question = room.questions.find((q) => q.id === questionId);
-    if (!question) return null;
+      const question = room.questions.find((q) => q.id === questionId);
+      if (!question) return null;
 
-    const player = room.players.find((p) => p?.userId === userId);
-    if (!player || player.answers[questionId]) return null; // already answered
+      const player = room.players.find((p) => p?.userId === userId);
+      if (!player || player.answers[questionId]) return null; // already answered
 
-    // Score server-side — never trust the client
-    const correct =
-      'answer' in question ? (question as any).answer === choice : false;
-    const xp = correct
-      ? Math.max(
-          XP.MCQ_CORRECT,
-          XP.MCQ_CORRECT +
-            Math.round(XP.MCQ_SPEED_BONUS_MAX * (1 - Math.min(elapsedMs, 60_000) / 60_000)),
-        )
-      : 0;
+      // Score server-side — never trust the client
+      const correct =
+        'answer' in question ? (question as any).answer === choice : false;
+      const xp = correct
+        ? Math.max(
+            XP.MCQ_CORRECT,
+            XP.MCQ_CORRECT +
+              Math.round(XP.MCQ_SPEED_BONUS_MAX * (1 - Math.min(elapsedMs, 60_000) / 60_000)),
+          )
+        : 0;
 
-    player.answers[questionId] = { choice, correct, elapsedMs };
-    if (correct) player.score += xp;
+      player.answers[questionId] = { choice, correct, elapsedMs };
+      if (correct) player.score += xp;
 
-    await this.saveRoom(room);
+      await this.saveRoom(room);
 
-    const currentQ = room.questions[room.currentIndex];
-    const bothAnswered = room.players.every((p) => p && currentQ && p.answers[currentQ.id]);
-    const duelComplete = bothAnswered && room.currentIndex >= room.rounds - 1;
+      const currentQ = room.questions[room.currentIndex];
+      const bothAnswered = room.players.every((p) => p && currentQ && p.answers[currentQ.id]);
+      const duelComplete = bothAnswered && room.currentIndex >= room.rounds - 1;
 
-    return {
-      bothAnswered,
-      duelComplete,
-      scores: {
-        [room.players[0]!.userId]: room.players[0]!.score,
-        [room.players[1]!.userId]: room.players[1]!.score,
-      },
-      summary: duelComplete ? this.buildSummary(room) : null,
-    };
+      return {
+        bothAnswered,
+        duelComplete,
+        scores: {
+          [room.players[0]!.userId]: room.players[0]!.score,
+          [room.players[1]!.userId]: room.players[1]!.score,
+        },
+        summary: duelComplete ? this.buildSummary(room) : null,
+      };
+    });
   }
 
   async recordTimeout(roomId: string, userId: string, questionId: string) {
@@ -186,24 +191,33 @@ export class DuelService {
   // ── Next question ─────────────────────────────────────────────────────────
 
   async getNextQuestion(roomId: string) {
-    const room = await this.getRoom(roomId);
-    if (!room) return null;
+    return this.withRoomLock(roomId, async () => {
+      const room = await this.getRoom(roomId);
+      if (!room) return null;
 
-    room.currentIndex += 1;
-    if (room.currentIndex >= room.questions.length) return null;
+      room.currentIndex += 1;
+      if (room.currentIndex >= room.questions.length) return null;
 
-    await this.saveRoom(room);
+      await this.saveRoom(room);
 
-    return {
-      question: this.stripAnswer(room.questions[room.currentIndex]),
-      index: room.currentIndex,
-      total: room.rounds,
-    };
+      return {
+        question: this.stripAnswer(room.questions[room.currentIndex]),
+        index: room.currentIndex,
+        total: room.rounds,
+      };
+    });
   }
 
   // ── Finalize ──────────────────────────────────────────────────────────────
 
   async finalizeDuel(roomId: string) {
+    // Check duel still active before proceeding (guards against disconnect race)
+    const duel = await this.prisma.duel.findUnique({
+      where: { id: roomId },
+      select: { status: true },
+    });
+    if (!duel || duel.status !== 'ACTIVE') return;
+
     const room = await this.getRoom(roomId);
     if (!room) return;
 
@@ -226,17 +240,23 @@ export class DuelService {
       },
     });
 
-    // Award XP to both players
-    for (const player of room.players) {
-      if (!player) continue;
-      const isWinner = player.userId === winnerId;
-      await this.prisma.user.update({
-        where: { id: player.userId },
-        data: {
-          totalXp: { increment: isWinner ? XP.DUEL_WIN : XP.DUEL_LOSS },
-          weeklyXp: { increment: isWinner ? XP.DUEL_WIN : XP.DUEL_LOSS },
-        },
-      });
+    // Award points via RankingService (floor protection, audit, tier calc, badges)
+    if (pB) {
+      const [playerA, playerB] = await Promise.all([
+        this.prisma.user.findUniqueOrThrow({
+          where: { id: pA!.userId },
+          select: { rankTier: true },
+        }),
+        this.prisma.user.findUniqueOrThrow({
+          where: { id: pB!.userId },
+          select: { rankTier: true },
+        }),
+      ]);
+
+      await this.ranking.awardDuelPoints(
+        roomId, winnerId, pA!.userId, pB!.userId,
+        playerA.rankTier, playerB.rankTier,
+      );
     }
 
     // Clean up room state
@@ -252,20 +272,45 @@ export class DuelService {
       if (!disconnected) continue;
 
       if (room.startedAt) {
-        // Mid-duel disconnect — mark as abandoned
-        server.to(roomId).emit('PLAYER_DISCONNECTED', {
-          userId: disconnected.userId,
-          message: 'Opponent disconnected. Duel abandoned.',
-        });
-        await this.prisma.duel.update({
-          where: { id: roomId },
-          data: { status: 'ABANDONED', endedAt: new Date() },
-        });
-      }
+        await this.withRoomLock(roomId, async () => {
+          // Re-check status after acquiring lock (finalizeDuel may have run)
+          const duel = await this.prisma.duel.findUnique({
+            where: { id: roomId },
+            select: { status: true },
+          });
+          if (!duel || duel.status !== 'ACTIVE') return;
 
-      this.rooms.delete(roomId);
-      await this.redis.del(`duel:${roomId}`);
+          server.to(roomId).emit('PLAYER_DISCONNECTED', {
+            userId: disconnected.userId,
+            message: 'Opponent disconnected. Duel abandoned.',
+          });
+          await this.prisma.duel.update({
+            where: { id: roomId },
+            data: { status: 'ABANDONED', endedAt: new Date() },
+          });
+          this.rooms.delete(roomId);
+          await this.redis.del(`duel:${roomId}`);
+        });
+      } else {
+        // Never started — just delete
+        this.rooms.delete(roomId);
+        await this.redis.del(`duel:${roomId}`);
+      }
       break;
+    }
+  }
+
+  // ── Per-room mutex — serializes read-modify-write on room state ──────────
+
+  private async withRoomLock<T>(roomId: string, fn: () => Promise<T>): Promise<T> {
+    while (this.roomLocks.has(roomId)) {
+      await new Promise(r => setTimeout(r, 10));
+    }
+    this.roomLocks.add(roomId);
+    try {
+      return await fn();
+    } finally {
+      this.roomLocks.delete(roomId);
     }
   }
 
