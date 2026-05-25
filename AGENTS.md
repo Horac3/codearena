@@ -15,6 +15,12 @@ npm run test                 → jest in each workspace
 
 **Single test file:** `cd apps/api && npx jest path/to/file.test.ts`
 
+**Integration tests** (requires test containers):
+```
+docker compose -f docker-compose.test.yml up -d
+cd apps/api && npm run test:e2e
+```
+
 **Extension watch** (hot-reload during VS Code dev): `cd apps/extension && npm run watch`
 
 **Validate question schemas:**
@@ -33,7 +39,7 @@ cd apps/extension && npx tsc --noEmit
 
 **Build order matters:** `packages/question-schema` must be compiled (`tsc`) before API type-checking — API's tsconfig aliases `@codearena/question-schema` to its source.
 
-**Prisma:** Schema at `apps/api/prisma/schema.prisma`. After schema changes, run `cd apps/api && npx prisma generate` to regenerate the client. Migrations auto-run on container start via `entrypoint.sh`.
+**Prisma:** Schema at `apps/api/prisma/schema.prisma`. After schema changes, run `cd apps/api && npx prisma generate` to regenerate the client. Migrations auto-run on container start via `entrypoint.sh`. Integration tests use `docker-compose.test.yml` (Postgres port 5433, Redis port 6380) to avoid conflicting with local dev services.
 
 ## Repo Structure
 

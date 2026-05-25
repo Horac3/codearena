@@ -61,6 +61,54 @@ jobs:
         working-directory: apps/extension
         run: npm run build
 
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: codearena
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: codearena_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U codearena -d codearena_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - name: Build question-schema
+        run: npx tsc --project packages/question-schema/tsconfig.json
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: npx prisma generate --schema=./prisma/schema.prisma
+      - name: Run migrations on test DB
+        working-directory: apps/api
+        run: npx prisma migrate deploy --schema=./prisma/schema.prisma
+        env:
+          DATABASE_URL: postgresql://codearena:testpassword@localhost:5433/codearena_test
+      - name: Run integration tests
+        working-directory: apps/api
+        run: npm run test:e2e
+        env:
+          TEST_DATABASE_URL: postgresql://codearena:testpassword@localhost:5433/codearena_test
+          TEST_REDIS_URL: redis://localhost:6380
+
   docker-build:
     name: Docker smoke-test
     runs-on: ubuntu-latest

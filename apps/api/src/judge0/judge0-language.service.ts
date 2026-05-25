@@ -69,8 +69,7 @@ export class Judge0LanguageService implements OnModuleInit {
     for (const entry of languages) {
       const name = entry.name.toLowerCase();
 
-      if (name.includes('javascript')) {
-        if (name.includes('node')) continue;
+      if (name.includes('javascript') && !name.includes('browser')) {
         if (!map['javascript']) map['javascript'] = entry.id;
       }
       if (name.includes('typescript')) {
