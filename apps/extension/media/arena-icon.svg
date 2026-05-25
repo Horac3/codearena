@@ -1,0 +1,8 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" fill="#1e1e1e"/>
+  <circle cx="64" cy="64" r="50" fill="none" stroke="#007acc" stroke-width="4"/>
+  <path d="M 40 64 L 64 40 L 88 64 L 64 88 Z" fill="#007acc"/>
+  <text x="64" y="72" font-family="Arial" font-size="24" fill="#ffffff" text-anchor="middle" font-weight="bold">⚡</text>
+</svg>
+
+<!-- Made with Bob -->

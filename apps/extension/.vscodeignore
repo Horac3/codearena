@@ -1,0 +1,15 @@
+.vscode/**
+.vscode-test/**
+src/**
+.gitignore
+tsconfig.json
+../../**
+../**
+**/node_modules/**
+**/*.map
+**/*.ts
+!dist/**/*.js
+!package.json
+!media/**
+
+# Made with Bob
