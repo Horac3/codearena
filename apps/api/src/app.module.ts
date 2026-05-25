@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
+import { Judge0Module } from './judge0/judge0.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -24,6 +25,7 @@ import { JobsModule } from './jobs/jobs.module';
     PrismaModule,
     RedisModule,
     NotificationsModule,
+    Judge0Module,
     // Domain modules
     AuthModule,
     UsersModule,

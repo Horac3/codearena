@@ -11,6 +11,7 @@ import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RankingService } from '../ranking/ranking.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { Judge0LanguageService } from '../judge0/judge0-language.service';
 import { CONTRIBUTION_POINTS } from '../ranking/ranking.constants';
 
 export interface ExecutionJobData {
@@ -35,6 +36,7 @@ export class ExecutionQueue {
     private ranking: RankingService,
     private notifications: NotificationsService,
     private config: ConfigService,
+    private judge0: Judge0LanguageService,
   ) {
     const connection = {
       host: this.config.get('REDIS_HOST', 'codearena-redis'),
@@ -106,7 +108,7 @@ export class ExecutionQueue {
         headers,
         body: JSON.stringify({
           source_code: fullSource,
-          language_id: this.judge0LanguageId(language),
+          language_id: this.judge0.resolve(language),
           stdin: '',
           cpu_time_limit: Math.ceil(timeLimit / 1000),
           memory_limit: 128000,
@@ -188,12 +190,6 @@ export class ExecutionQueue {
     }
   }
 
-  private judge0LanguageId(l: string) {
-    return ({ javascript: 93, typescript: 94, python: 71, go: 95 } as any)[l] ?? 93;
-  }
-  private ext(l: string) {
-    return ({ javascript: 'js', typescript: 'ts', python: 'py', go: 'go' } as any)[l] ?? 'js';
-  }
 }
 
 // ── Inline test harnesses (no Jest dependency in Piston sandbox) ──────────

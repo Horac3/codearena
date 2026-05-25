@@ -49,4 +49,4 @@ echo ""
 echo "🛑 Stop services:"
 echo "   docker compose -f docker-compose.yml -f docker-compose.local.yml down"
 
-# Made with Bob
+#

@@ -49,4 +49,4 @@ Write-Host ""
 Write-Host "🛑 Stop services:" -ForegroundColor Cyan
 Write-Host "   docker compose -f docker-compose.yml -f docker-compose.local.yml down"
 
-# Made with Bob
+#

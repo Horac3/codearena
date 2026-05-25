@@ -5,16 +5,10 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QuestionsService } from '../questions/questions.service';
+import { Judge0LanguageService } from '../judge0/judge0-language.service';
 import { CodingQuestion, ExecutionResult, TestResult, XP } from '@codearena/question-schema';
 import * as fs from 'fs';
 import * as path from 'path';
-
-const SUPPORTED_LANGUAGES: Record<string, { judge0Id: number }> = {
-  javascript: { judge0Id: 93 },  // Node.js 18
-  typescript: { judge0Id: 94 },  // TypeScript
-  python:     { judge0Id: 71 },  // Python 3
-  go:         { judge0Id: 95 },  // Go
-};
 
 @Injectable()
 export class ExecutionService {
@@ -23,6 +17,7 @@ export class ExecutionService {
   constructor(
     private config: ConfigService,
     private questions: QuestionsService,
+    private judge0: Judge0LanguageService,
   ) {}
 
   async execute(
@@ -39,10 +34,10 @@ export class ExecutionService {
 
     const codingQ = question as CodingQuestion;
 
-    if (!SUPPORTED_LANGUAGES[language]) {
-      throw new BadRequestException(
-        `Language "${language}" not supported. Supported: ${Object.keys(SUPPORTED_LANGUAGES).join(', ')}`,
-      );
+    try {
+      this.judge0.resolve(language);
+    } catch {
+      throw new BadRequestException(`Language "${language}" is not available on this Judge0 instance`);
     }
 
     if (!codingQ.functionSignature[language as keyof typeof codingQ.functionSignature]) {
@@ -88,7 +83,7 @@ export class ExecutionService {
   ): Promise<{ stdout: string; stderr: string; statusId: number }> {
     const judge0Url = this.config.get<string>('JUDGE0_URL', 'http://judge0:2358');
     const judge0Token = this.config.get<string>('JUDGE0_AUTH_TOKEN');
-    const lang = SUPPORTED_LANGUAGES[language];
+    const languageId = this.judge0.resolve(language);
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -103,7 +98,7 @@ export class ExecutionService {
       headers,
       body: JSON.stringify({
         source_code: code,
-        language_id: lang.judge0Id,
+        language_id: languageId,
         stdin: '',
         cpu_time_limit: Math.ceil(timeLimitMs / 1000), // Convert ms to seconds
         memory_limit: 128000, // 128MB in KB
@@ -314,4 +309,4 @@ def run_tests():
   }
 }
 
-// Made with Bob
+//
