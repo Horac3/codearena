@@ -198,6 +198,29 @@ Once all containers are running:
 - **Contributing**: `CONTRIBUTING.md`
 - **Deployment**: `docs/deployment.md`
 
+## 🧪 Running Tests
+
+### Unit Tests
+```bash
+npm run test
+```
+
+### Integration Tests
+
+Requires the test database and Redis containers. These use **different ports** (5433 / 6380) to avoid conflicting with your local dev services.
+
+```bash
+# Start test services
+docker compose -f docker-compose.test.yml up -d
+
+# Run integration tests
+cd apps/api && npm run test:e2e
+```
+
+CI runs integration tests automatically via GitHub Actions service containers.
+
+---
+
 ## 🛑 Stop Development Environment
 
 ```bash
