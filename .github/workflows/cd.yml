@@ -6,6 +6,7 @@
 #   VPS_HOST      — server IP or hostname
 #   VPS_USER      — SSH username (e.g., root)
 #   VPS_SSH_KEY   — private SSH key for the VPS
+#   GHCR_PAT      — GitHub PAT with read:packages scope (for VPS to pull images)
 #   VPS_PATH      — path to codearena directory on the VPS (default: /opt/codearena)
 
 name: CD
@@ -88,6 +89,9 @@ jobs:
             set -e
             cd "${VPS_PATH:-/home/codearena}"
             export GHCR_OWNER=horac3
+
+            echo "Logging in to GHCR..."
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
             echo "Pulling latest images..."
             docker-compose pull
