@@ -217,7 +217,7 @@ export class ExecutionQueue {
     try {
       return JSON.parse(last) as Array<{ name: string; passed: boolean; error?: string }>;
     } catch {
-      return [{ name: 'Execution', failed: true, error: stderr || stdout || 'Unknown error' }];
+      return [{ name: 'Execution', passed: false, error: stderr || stdout || 'Unknown error' }];
     }
   }
 
