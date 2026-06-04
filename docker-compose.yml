@@ -9,9 +9,10 @@ services:
 
   # ── NestJS API + WebSocket duel gateway ──────────────────────────────────
   codearena-api:
+    image: ghcr.io/${GHCR_OWNER:-codearena}/codearena-api:latest
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/api/Dockerfile
     expose:
       - "3000"
     env_file: .env
@@ -42,9 +43,10 @@ services:
 
   # ── Static landing + invite page ─────────────────────────────────────────
   codearena-web:
+    image: ghcr.io/${GHCR_OWNER:-codearena}/codearena-web:latest
     build:
-      context: ./apps/web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/web/Dockerfile
     expose:
       - "80"
     environment:

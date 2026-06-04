@@ -286,7 +286,9 @@ All 245 rules have been verified against the source code. Boxes marked `[x]` are
 
 ### Deployment Checklist
 
-- [ ] `docker compose up -d --build` — rebuilds API + Web with current code
+- [ ] GitHub Actions secrets set: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_PATH`
+- [ ] Push to `main` triggers `cd.yml` — builds images in CI, no CPU spike on server
+- [ ] Server only runs `docker compose pull && docker compose up -d`
 - [ ] `.env` filled with production values (see `.env.example`)
 - [ ] GitHub OAuth App registered with callback: `https://api.codearena.never9to5ive.com/auth/github/callback`
 - [ ] DNS: `api.codearena.never9to5ive.com` → API container, `codearena.never9to5ive.com` → Web container
@@ -294,3 +296,4 @@ All 245 rules have been verified against the source code. Boxes marked `[x]` are
 - [ ] Judge0 already running — verify `JUDGE0_URL` in `.env`
 - [ ] Postgres credentials in `.env` match `docker-compose.yml`
 - [ ] Migrations run automatically via `entrypoint.sh`
+- [ ] `GHCR_OWNER` env var set on VPS (e.g., in `.env`) or fallback `codearena` is used for image tags

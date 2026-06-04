@@ -75,7 +75,20 @@ cd apps/api && npm run test:e2e
 
 API Swagger docs at `http://localhost:3000/docs`.
 
-## Reference
+## CD Pipeline
+
+`.github/workflows/cd.yml` builds and deploys on push to `main`:
+1. Builds `codearena-api` and `codearena-web` Docker images (no source on server)
+2. Pushes to `ghcr.io/<owner>/codearena-{api,web}:latest` (+ commit SHA tag)
+3. SSHes into VPS, pulls images, runs `docker compose up -d`
+
+**Prerequisites** — set these GitHub Actions secrets:
+- `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` — SSH access
+- `VPS_PATH` — deploy directory (default `/opt/codearena`)
+
+**Local dev** still uses `docker compose build` from source — `build:` sections in compose coexists with `image:` tags. For production, the VPS never builds; it only pulls.
+
+## Reference Docs
 
 - `CONTRIBUTING.md` — question schema, coding challenge workflow, PR checklist
 - `RULES.md` — pre-deployment checklist (296 lines). Consult before touching auth, duels, ranking, or competitions.
