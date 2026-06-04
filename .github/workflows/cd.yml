@@ -90,10 +90,10 @@ jobs:
             export GHCR_OWNER=horac3
 
             echo "Pulling latest images..."
-            docker compose pull
+            docker-compose pull
 
             echo "Recreating changed services..."
-            docker compose up -d --remove-orphans
+            docker-compose up -d --remove-orphans
 
             echo "Cleaning up old images..."
             docker image prune -f
