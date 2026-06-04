@@ -39,7 +39,7 @@
     "topic": "networking",
     "difficulty": 1,
     "stem": "What does DNS stand for, and what is its primary purpose?",
-    "explanation": "DNS stands for Domain Name System. Its primary purpose is to translate human-readable domain names (like codearena.dev) into IP addresses (like 192.168.1.1) that computers use to identify each other on a network. Without DNS, every URL would need to be an IP address.",
+    "explanation": "DNS stands for Domain Name System. Its primary purpose is to translate human-readable domain names (like codearena.never9to5ive.com) into IP addresses (like 192.168.1.1) that computers use to identify each other on a network. Without DNS, every URL would need to be an IP address.",
     "options": [
       "Dynamic Network Service — assigns IP addresses to devices",
       "Domain Name System — translates domain names to IP addresses",
@@ -89,8 +89,8 @@
     "type": "trace",
     "topic": "networking",
     "difficulty": 2,
-    "stem": "A developer makes a fetch() call to https://api.codearena.dev/questions/daily. In what order do these steps happen?",
-    "code": "Steps:\nA. TLS handshake\nB. TCP three-way handshake\nC. DNS resolution (api.codearena.dev → IP)\nD. HTTP GET request sent\nE. Browser checks local DNS cache",
+    "stem": "A developer makes a fetch() call to https://api.codearena.never9to5ive.com/questions/daily. In what order do these steps happen?",
+    "code": "Steps:\nA. TLS handshake\nB. TCP three-way handshake\nC. DNS resolution (api.codearena.never9to5ive.com → IP)\nD. HTTP GET request sent\nE. Browser checks local DNS cache",
     "language": "javascript",
     "explanation": "The order is: E (check local DNS cache) → C (DNS resolution if cache miss) → B (TCP handshake to establish connection) → A (TLS handshake to secure the connection) → D (HTTP request sent). DNS must happen before TCP because you need the IP to open a socket. TCP before TLS because TLS runs on top of TCP. TLS before HTTP because HTTPS requires an encrypted channel.",
     "options": [
@@ -111,7 +111,7 @@
     "stem": "This Express server is supposed to handle CORS for the CodeArena web client. What is wrong?",
     "code": "app.use((req, res, next) => {\n  res.setHeader('Access-Control-Allow-Origin', req.headers.origin);\n  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH');\n  next();\n});\n\napp.options('*', (req, res) => {\n  res.sendStatus(200);\n});",
     "language": "javascript",
-    "explanation": "The bug is reflecting req.headers.origin blindly — this allows ANY origin to make cross-origin requests, which is a security vulnerability. It should validate origin against a whitelist (e.g. ['https://codearena.dev', 'http://localhost:5173']) before reflecting it. Additionally, the preflight OPTIONS handler is missing the CORS headers — it returns 200 but without the headers the browser still blocks the request.",
+    "explanation": "The bug is reflecting req.headers.origin blindly — this allows ANY origin to make cross-origin requests, which is a security vulnerability. It should validate origin against a whitelist (e.g. ['https://codearena.never9to5ive.com', 'http://localhost:5173']) before reflecting it. Additionally, the preflight OPTIONS handler is missing the CORS headers — it returns 200 but without the headers the browser still blocks the request.",
     "options": [
       "app.use() should be app.all()",
       "The origin header is being reflected without validation, allowing any origin — and OPTIONS response is missing CORS headers",
@@ -119,7 +119,7 @@
       "Access-Control-Allow-Methods is missing DELETE"
     ],
     "answer": 1,
-    "fixedCode": "const ALLOWED_ORIGINS = ['https://codearena.dev', 'http://localhost:5173'];\n\napp.use((req, res, next) => {\n  const origin = req.headers.origin;\n  if (ALLOWED_ORIGINS.includes(origin)) {\n    res.setHeader('Access-Control-Allow-Origin', origin);\n  }\n  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH');\n  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');\n  next();\n});\n\napp.options('*', (req, res) => {\n  const origin = req.headers.origin;\n  if (ALLOWED_ORIGINS.includes(origin)) {\n    res.setHeader('Access-Control-Allow-Origin', origin);\n  }\n  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH');\n  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');\n  res.sendStatus(204);\n});",
+    "fixedCode": "const ALLOWED_ORIGINS = ['https://codearena.never9to5ive.com', 'http://localhost:5173'];\n\napp.use((req, res, next) => {\n  const origin = req.headers.origin;\n  if (ALLOWED_ORIGINS.includes(origin)) {\n    res.setHeader('Access-Control-Allow-Origin', origin);\n  }\n  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH');\n  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');\n  next();\n});\n\napp.options('*', (req, res) => {\n  const origin = req.headers.origin;\n  if (ALLOWED_ORIGINS.includes(origin)) {\n    res.setHeader('Access-Control-Allow-Origin', origin);\n  }\n  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH');\n  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');\n  res.sendStatus(204);\n});",
     "tags": ["cors", "security", "express", "http-headers"],
     "author": "codearena-core"
   }

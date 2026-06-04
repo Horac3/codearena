@@ -16,7 +16,7 @@ export function getWebviewContent(
              style-src 'nonce-${nonce}' https://fonts.googleapis.com;
              font-src https://fonts.gstatic.com;
              script-src 'nonce-${nonce}';
-             connect-src https://api.codearena.dev wss://api.codearena.dev;"/>
+             connect-src https://api.codearena.never9to5ive.com wss://api.codearena.never9to5ive.com;"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>

@@ -26,7 +26,7 @@ export class AuthController {
   async githubCallback(@Req() req: any, @Res() res: any) {
     const user = req.user;
     const token = this.auth.signToken(user.id, user.username);
-    const webUrl = this.config.get<string>('WEB_URL', 'https://codearena.dev');
+    const webUrl = this.config.get<string>('WEB_URL', 'https://codearena.never9to5ive.com');
     // Deep-link back into VS Code with the JWT
     res.redirect(`vscode://codearena.codearena/auth?token=${token}`);
   }
@@ -37,7 +37,7 @@ export class AuthController {
   async githubCallbackWeb(@Req() req: any, @Res() res: any) {
     const user = req.user;
     const token = this.auth.signToken(user.id, user.username);
-    const webUrl = this.config.get<string>('WEB_URL', 'https://codearena.dev');
+    const webUrl = this.config.get<string>('WEB_URL', 'https://codearena.never9to5ive.com');
     res.redirect(`${webUrl}/auth/success?token=${token}`);
   }
 }

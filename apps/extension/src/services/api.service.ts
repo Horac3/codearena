@@ -11,7 +11,7 @@ export class ApiService {
   private get baseUrl(): string {
     return vscode.workspace
       .getConfiguration('codearena')
-      .get<string>('apiUrl', 'https://api.codearena.dev');
+      .get<string>('apiUrl', 'https://api.codearena.never9to5ive.com');
   }
 
   private async fetch<T>(path: string, options: RequestInit = {}): Promise<T> {

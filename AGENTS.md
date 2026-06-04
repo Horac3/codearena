@@ -64,6 +64,14 @@ cd apps/api && npm run test:e2e
 - **Weekly competitions** run Thursday–Monday, with separate questions and rankings from daily blitz.
 - **Docker resource limits** in compose files are mandatory (4GB / 2-core VPS). Removing limits causes OOM kills.
 
+## Server State (VPS)
+
+- **Judge0** stack at `/home/judge0-v1.13.1/docker-compose.yml`. Server + workers connected to `codearena_codearena-internal` (172.28.0.4 and 0.5). DB and Redis on `judge0-v1131_default` network.
+- **CodeArena services** (api, web, db, redis) on `codearena_codearena-internal`. Judge0 server joins via `docker network connect`.
+- **Host:** linux/arm64/v8, 4GB RAM, 2-core. Judge0 images are amd64-only — requires `tonistiigi/binfmt --install all` for QEMU emulation.
+- **Disk:** 38GB total, ~1.5GB free after cleaning unrelated images/piston/journal. Judge0 base image is 10.5GB.
+- **Docker Compose:** v2.28.1, binary is `docker-compose` (not `docker compose`).
+
 ## Local Dev Quickstart
 
 1. `docker compose -f docker-compose.yml -f docker-compose.local.yml up -d` (Postgres + Redis)

@@ -17,7 +17,7 @@ export class DuelService {
   private get wsUrl(): string {
     const apiUrl = vscode.workspace
       .getConfiguration('codearena')
-      .get<string>('apiUrl', 'https://api.codearena.dev');
+      .get<string>('apiUrl', 'https://api.codearena.never9to5ive.com');
     return apiUrl.replace(/^http/, 'ws');
   }
 

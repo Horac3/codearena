@@ -93,7 +93,7 @@ export class DuelService {
     this.rooms.set(duel.id, room);
     await this.redis.setJson(`duel:${duel.id}`, room, ROOM_TTL_SECONDS);
 
-    const baseUrl = this.config.get<string>('BASE_URL', 'https://codearena.dev');
+    const baseUrl = this.config.get<string>('BASE_URL', 'https://codearena.never9to5ive.com');
 
     return {
       roomId: duel.id,
