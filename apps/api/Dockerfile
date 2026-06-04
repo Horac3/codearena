@@ -4,10 +4,10 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Install deps
-COPY package*.json ./
+COPY package.json ./
 COPY apps/api/package*.json ./apps/api/
 COPY packages/question-schema/package*.json ./packages/question-schema/
-RUN npm ci --workspace=apps/api --workspace=packages/question-schema
+RUN rm -f package-lock.json && npm install --workspace=apps/api --workspace=packages/question-schema
 
 # Build question-schema package first
 COPY packages/question-schema ./packages/question-schema
@@ -15,7 +15,7 @@ RUN npm run build --workspace=packages/question-schema
 
 # Build API
 COPY apps/api ./apps/api
-RUN npm run build --workspace=apps/api
+RUN npx tsc -p apps/api/tsconfig.docker.json --outDir ./apps/api/dist
 RUN npx prisma generate --schema=apps/api/prisma/schema.prisma
 
 # ── Production image ──────────────────────────────────────────────────────

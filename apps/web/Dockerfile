@@ -1,9 +1,9 @@
 # apps/web/Dockerfile
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
+COPY package.json ./
 COPY apps/web/package*.json ./apps/web/
-RUN npm ci --workspace=apps/web
+RUN rm -f package-lock.json && npm install --workspace=apps/web
 COPY apps/web ./apps/web
 RUN npm run build --workspace=apps/web
 
