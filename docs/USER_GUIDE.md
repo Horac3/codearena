@@ -230,7 +230,7 @@ Open `Ctrl+,` and search **CodeArena**:
 
 | Setting | Default | Description |
 |---|---|---|
-| `codearena.apiUrl` | `https://api.codearena.dev` | Change to self-host |
+| `codearena.apiUrl` | `https://api.codearena.never9to5ive.com` | Change to self-host |
 | `codearena.showStatusBar` | `true` | Show streak in status bar |
 | `codearena.pomodoro.*` | various | Pomodoro preferences |
 

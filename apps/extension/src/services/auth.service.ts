@@ -9,6 +9,7 @@ export class AuthService {
   async setToken(token: string): Promise<void> {
     // SecretStorage is encrypted on disk — safe for JWTs
     await this.context.secrets.store(TOKEN_KEY, token);
+    await this.context.globalState.update('codearena.authed', true);
   }
 
   async getToken(): Promise<string | undefined> {
@@ -17,6 +18,7 @@ export class AuthService {
 
   async clearToken(): Promise<void> {
     await this.context.secrets.delete(TOKEN_KEY);
+    await this.context.globalState.update('codearena.authed', false);
   }
 
   isAuthenticated(): boolean {

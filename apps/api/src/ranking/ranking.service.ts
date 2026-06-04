@@ -99,14 +99,9 @@ export class RankingService {
         metadata: { tierBefore, tierAfter, title: newTierData.title },
       });
 
-      // Award rank-up badge
-      await this.prisma.badge.create({
-        data: {
-          userId,
-          type:  tierAfter === 10 ? 'ULTIMATE_GEEK' : 'RANK_UP',
-          label: `Reached ${newTierData.title}`,
-        },
-      });
+      // Award rank-up badge (dedup via ensureBadge so it's only awarded once per tier)
+      const badgeType = tierAfter === 10 ? 'ULTIMATE_GEEK' : 'RANK_UP';
+      await this.ensureBadge(userId, badgeType, `Reached ${newTierData.title}`);
 
       if (tierAfter === 10) {
         this.logger.log(`🏆 ${userId} reached ULTIMATE GEEK`);
@@ -204,7 +199,7 @@ export class RankingService {
     if (streak >= 100) await this.ensureBadge(userId, 'STREAK_100', '100-day streak');
   }
 
-  private async ensureBadge(userId: string, type: string, label: string) {
+  async ensureBadge(userId: string, type: string, label: string) {
     const existing = await this.prisma.badge.findFirst({
       where: { userId, type: type as any },
     });

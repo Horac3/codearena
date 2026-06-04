@@ -1,6 +1,5 @@
 // apps/api/src/leaderboard/leaderboard.service.ts
 import { Injectable } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -38,8 +37,9 @@ export class LeaderboardService {
     return ranked;
   }
 
-  // Reset weekly XP every Monday at midnight
-  @Cron('0 0 * * 1')
+  // Weekly XP reset is handled by WeeklyService.closeWeeklyCompetition()
+  // to ensure leaderboard bonuses are awarded before the reset.
+  // This method is kept for manual/admin use.
   async resetWeeklyXp() {
     await this.prisma.user.updateMany({ data: { weeklyXp: 0 } });
     await this.redis.del('leaderboard:weekly');

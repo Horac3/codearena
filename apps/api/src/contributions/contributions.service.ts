@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { RankingService } from '../ranking/ranking.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RedisService } from '../redis/redis.service';
 import {
   CONTRIBUTION_POINTS,
   REVIEWER_REQUIREMENTS,
@@ -28,6 +29,7 @@ export class ContributionsService {
     private prisma: PrismaService,
     private ranking: RankingService,
     private notifications: NotificationsService,
+    private redis: RedisService,
   ) {}
 
   // ── Submit a contribution (called by CI webhook after PR opens) ────────
@@ -130,9 +132,11 @@ export class ContributionsService {
       throw new ForbiddenException('You are not an active reviewer');
     }
 
-    if (reviewer.rankTier < REVIEWER_REQUIREMENTS.MIN_TIER) {
+    const minTier = REVIEWER_REQUIREMENTS.MIN_TIER;
+    if (reviewer.rankTier < minTier) {
+      // Founding reviewers (first 3 months) need only tier 3
       throw new ForbiddenException(
-        `Reviewers must be rank ${REVIEWER_REQUIREMENTS.MIN_TIER} or above`,
+        `Reviewers must be rank ${minTier} or above`,
       );
     }
 
@@ -144,11 +148,16 @@ export class ContributionsService {
 
     const contribution = await this.prisma.contribution.findUniqueOrThrow({
       where: { id: contributionId },
-      include: { reviews: true },
+      include: { reviews: true, author: { select: { id: true } } },
     });
 
     if (contribution.status === 'MERGED' || contribution.status === 'REJECTED') {
       throw new BadRequestException('Contribution is already finalised');
+    }
+
+    // A reviewer cannot review their own contribution
+    if (reviewerId === contribution.authorId) {
+      throw new ForbiddenException('You cannot review your own contribution');
     }
 
     // Create review
@@ -176,6 +185,7 @@ export class ContributionsService {
       where: { id: reviewerId },
       data: { weeklyXp: { increment: 15 } },
     });
+    await this.redis.del('leaderboard:weekly');
 
     // Check if we have enough approvals
     const allReviews = [...contribution.reviews, review];
@@ -227,8 +237,22 @@ export class ContributionsService {
       include: { reviews: true, author: true },
     });
 
-    if (!['APPROVED', 'NEEDS_REVIEW'].includes(contribution.status)) {
+    // Must be APPROVED and have CI passed
+    if (contribution.status !== 'APPROVED') {
       throw new BadRequestException('Contribution must be APPROVED before merging');
+    }
+    if (!contribution.ciPassed) {
+      throw new BadRequestException('CI must pass before a contribution can be merged');
+    }
+
+    // Verify the merger has sufficient permissions (senior reviewer rank 8+)
+    const maintainer = await this.prisma.user.findUniqueOrThrow({
+      where: { id: maintainerId },
+    });
+    if (maintainer.rankTier < REVIEWER_REQUIREMENTS.SENIOR_MIN_TIER) {
+      throw new ForbiddenException(
+        `Only reviewers of rank ${REVIEWER_REQUIREMENTS.SENIOR_MIN_TIER}+ can merge contributions`,
+      );
     }
 
     await this.prisma.contribution.update({
@@ -257,14 +281,12 @@ export class ContributionsService {
     // Check authorship badges
     await this.checkAuthorBadges(contribution.authorId);
 
-    // Award author badge
-    await this.prisma.badge.create({
-      data: {
-        userId: contribution.authorId,
-        type: 'QUESTION_AUTHOR',
-        label: `Question "${contribution.questionId}" merged`,
-      },
-    });
+    // Award author badge (dedup via ensureBadge)
+    await this.ensureBadge(
+      contribution.authorId,
+      'QUESTION_AUTHOR',
+      `Question "${contribution.questionId}" merged`,
+    );
 
     // Notify author
     await this.notifications.send(contribution.authorId, {
@@ -353,13 +375,7 @@ export class ContributionsService {
         metadata: { accuracy },
       });
 
-      await this.prisma.badge.create({
-        data: {
-          userId: candidateId,
-          type: 'COMMUNITY_REVIEWER',
-          label: 'Earned Community Reviewer status',
-        },
-      });
+      await this.ensureBadge(candidateId, 'COMMUNITY_REVIEWER', 'Earned Community Reviewer status');
     }
   }
 

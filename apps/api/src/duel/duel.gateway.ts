@@ -14,7 +14,10 @@ import { DuelService } from './duel.service';
 import { WsJwtGuard } from '../auth/ws-jwt.guard';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: {
+    origin: process.env.CORS_ORIGINS?.split(',') ?? ['http://localhost:5173'],
+    credentials: true,
+  },
   namespace: '/duel',
 })
 export class DuelGateway implements OnGatewayConnection, OnGatewayDisconnect {

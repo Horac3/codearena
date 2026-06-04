@@ -8,7 +8,7 @@ This guide covers deploying CodeArena to your VPS using Docker Compose and your 
 
 - VPS with Docker and Docker Compose installed
 - The `nginx-proxy` external network already running (from your existing projects)
-- A domain pointed at your VPS — `codearena.dev` (or your own)
+- A domain pointed at your VPS — `codearena.never9to5ive.com` (or your own)
 - GitHub OAuth app credentials
 
 ---
@@ -20,8 +20,8 @@ Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth 
 | Field | Value |
 |-------|-------|
 | Application name | CodeArena |
-| Homepage URL | `https://codearena.dev` |
-| Authorization callback URL | `https://api.codearena.dev/auth/github/callback` |
+| Homepage URL | `https://codearena.never9to5ive.com` |
+| Authorization callback URL | `https://api.codearena.never9to5ive.com/auth/github/callback` |
 
 Copy the **Client ID** and **Client Secret** — you'll need them in `.env`.
 
@@ -67,7 +67,7 @@ Prisma migrations run automatically on API startup via `entrypoint.sh`.
 
 ```bash
 # API health
-curl https://api.codearena.dev/docs
+curl https://api.codearena.never9to5ive.com/docs
 
 # Check all containers are healthy
 docker compose ps

@@ -1,5 +1,5 @@
 // apps/api/src/questions/questions.service.ts
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import * as fs from 'fs';
@@ -7,7 +7,15 @@ import * as path from 'path';
 import seedrandom from 'seedrandom';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { Question, Topic } from '@codearena/question-schema';
+import { Question, Topic, XP } from '@codearena/question-schema';
+import { UsersService } from '../users/users.service';
+import { RankingService } from '../ranking/ranking.service';
+import { ContributionsService } from '../contributions/contributions.service';
+import {
+  DAILY_POINTS,
+  calculateSpeedBonus,
+  calculateStreakMultiplier,
+} from '../ranking/ranking.constants';
 
 const DAILY_SET_SIZE = 5;
 const DAILY_CACHE_TTL = 60 * 60 * 25; // 25 hours — overlap so midnight transitions are smooth
@@ -21,6 +29,9 @@ export class QuestionsService {
     private prisma: PrismaService,
     private redis: RedisService,
     private config: ConfigService,
+    private users: UsersService,
+    private ranking: RankingService,
+    private contributions: ContributionsService,
   ) {}
 
   // ── Startup ──────────────────────────────────────────────────────────────
@@ -68,6 +79,66 @@ export class QuestionsService {
 
   // ── Daily set ─────────────────────────────────────────────────────────────
 
+  async submitDaily(
+    userId: string,
+    answers: Record<string, number>,
+  ): Promise<{ score: number; total: number; pointsEarned: number; streak: number }> {
+    const date = this.todayString();
+
+    // Check for duplicate submission
+    const existing = await this.prisma.dailySubmission.findUnique({
+      where: { userId_date: { userId, date } },
+    });
+    if (existing) {
+      throw new BadRequestException('You have already submitted today\'s Daily Blitz');
+    }
+
+    const set = this.buildDailySet(date);
+
+    // Score server-side
+    let score = 0;
+    for (const q of set) {
+      const choice = answers[q.id];
+      if (choice !== undefined && 'answer' in q && (q as any).answer === choice) {
+        score++;
+      }
+    }
+
+    // Calculate XP
+    let baseXp = score * DAILY_POINTS.CORRECT_ANSWER;
+    const speedBonus = 0; // Daily blitz doesn't track per-question timing
+    const perfectBonus = score === DAILY_SET_SIZE ? DAILY_POINTS.PERFECT_SCORE : 0;
+    const completionBonus = DAILY_POINTS.COMPLETION_BONUS;
+
+    // Update streak first so we have the current value
+    const user = await this.users.updateStreak(userId);
+    const multiplier = calculateStreakMultiplier(user?.streak ?? 1);
+
+    const rawPoints = Math.round((baseXp + perfectBonus + completionBonus) * multiplier);
+    const pointsEarned = Math.max(rawPoints, 0);
+
+    // Persist submission
+    await this.prisma.dailySubmission.create({
+      data: {
+        userId,
+        date,
+        score,
+        pointsEarned,
+        answers,
+      },
+    });
+
+    // Award rank points via RankingService (floor protection, audit, tier calc)
+    await this.ranking.awardPoints(userId, pointsEarned, 'daily_blitz', date);
+
+    // Check streak badges
+    if (user) {
+      await this.ranking.checkStreakBadges(userId, user.streak);
+    }
+
+    return { score, total: DAILY_SET_SIZE, pointsEarned, streak: user?.streak ?? 1 };
+  }
+
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async seedDailySet(): Promise<void> {
     const date = this.todayString();
@@ -79,18 +150,24 @@ export class QuestionsService {
       update: { questionIds: set.map((q) => q.id) },
     });
     await this.redis.setJson(`daily:${date}`, set, DAILY_CACHE_TTL);
+
+    // Notify authors whose questions are used in today's set
+    for (const q of set) {
+      await this.contributions.notifyQuestionUsed(q.id, 'daily_blitz', 0).catch(() => {});
+    }
+
     this.logger.log(`Daily set for ${date} seeded with ${set.length} questions`);
   }
 
-  async getDailySet(): Promise<Question[]> {
+  async getDailySet() {
     const date = this.todayString();
     const cached = await this.redis.getJson<Question[]>(`daily:${date}`);
-    if (cached) return cached;
-
-    // Cache miss — build and cache
-    const set = this.buildDailySet(date);
-    await this.redis.setJson(`daily:${date}`, set, DAILY_CACHE_TTL);
-    return set;
+    const set = cached ?? this.buildDailySet(date);
+    if (!cached) {
+      await this.redis.setJson(`daily:${date}`, set, DAILY_CACHE_TTL);
+    }
+    // Strip answers before sending to client
+    return set.map((q) => this.stripAnswer(q));
   }
 
   private buildDailySet(date: string): Question[] {
@@ -106,6 +183,11 @@ export class QuestionsService {
     const q = this.bank.find((q) => q.id === id);
     if (!q) throw new NotFoundException(`Question ${id} not found`);
     return q;
+  }
+
+  findByIdSafe(id: string): Omit<Question, 'answer'> {
+    const q = this.findById(id);
+    return this.stripAnswer(q);
   }
 
   findByTopic(topic: Topic, count: number): Question[] {
@@ -138,6 +220,12 @@ export class QuestionsService {
 
     const rng = seedrandom(Date.now().toString());
     return this.shuffleArray(eligible, rng).slice(0, count);
+  }
+
+  private stripAnswer(q: Question) {
+    const { ...safe } = q as any;
+    delete safe.answer;
+    return safe;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

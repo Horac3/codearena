@@ -6,6 +6,7 @@ import { RedisService } from '../redis/redis.service';
 import { QuestionsService } from '../questions/questions.service';
 import { RankingService } from '../ranking/ranking.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ContributionsService } from '../contributions/contributions.service';
 import { WEEKLY_COMP_POINTS } from '../ranking/ranking.constants';
 
 const THEMES = ['dsa', 'systems', 'cs-fundamentals', 'networking', 'mixed'];
@@ -21,6 +22,7 @@ export class WeeklyService {
     private questions: QuestionsService,
     private ranking: RankingService,
     private notifications: NotificationsService,
+    private contributions: ContributionsService,
   ) {}
 
   // ── Cron: open competition every Thursday midnight UTC ─────────────────
@@ -67,6 +69,12 @@ export class WeeklyService {
     });
 
     await this.redis.setJson('weekly:active', competition, 60 * 60 * 24 * 4);
+
+    // Notify authors whose questions are featured
+    for (const q of pool) {
+      await this.contributions.notifyQuestionUsed(q.id, 'weekly_comp', 0).catch(() => {});
+    }
+
     this.logger.log(`Weekly competition ${competition.id} opened — theme: ${theme}`);
   }
 
@@ -111,10 +119,9 @@ export class WeeklyService {
       // Award badges for top finishers
       if (rank <= 3 || rank <= 10) {
         const badgeType = rank === 1 ? 'WEEKLY_CHAMPION' : rank <= 3 ? 'WEEKLY_PODIUM' : 'WEEKLY_TOP_10';
-        const label = `${active.themeLabel} — ${rank === 1 ? 'Champion' : `#${rank}`} (${active.weekStart.toISOString().split('T')[0]})`;
-        await this.prisma.badge.create({
-          data: { userId: submissions[i].userId, type: badgeType as any, label },
-        });
+        const dateStr = active.weekStart.toISOString().split('T')[0];
+        const label = `Week of ${dateStr} — ${active.themeLabel.replace(' Week', '')} ${rank === 1 ? 'Champion' : `#${rank}`}`;
+        await this.ranking.ensureBadge(submissions[i].userId, badgeType, label);
 
         // Notify top 3
         if (rank <= 3) {

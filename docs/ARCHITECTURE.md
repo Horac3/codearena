@@ -32,8 +32,8 @@ CodeArena has three deployed components and one shared package:
 ┌────────────────────────────────────────────────────────────────┐
 │                    VPS  (4GB RAM / 2 Cores)                    │
 │                                                                │
-│  nginx-proxy ──┬── api.codearena.dev ──► codearena-api :3000  │
-│  + acme        └── codearena.dev      ──► codearena-web :80   │
+│  nginx-proxy ──┬── api.codearena.never9to5ive.com ──► codearena-api :3000  │
+│  + acme        └── codearena.never9to5ive.com      ──► codearena-web :80   │
 │                                                                │
 │  codearena-internal network (not internet-facing):            │
 │    codearena-db      PostgreSQL  :5432                        │
@@ -42,15 +42,15 @@ CodeArena has three deployed components and one shared package:
 └────────────────────────────────────────────────────────────────┘
 
 VS Code Extension (runs on developer's machine)
-  ├── HTTP  ──► api.codearena.dev  (REST — questions, auth, leaderboard)
-  └── WSS   ──► api.codearena.dev  (WebSocket — duel real-time events)
+  ├── HTTP  ──► api.codearena.never9to5ive.com  (REST — questions, auth, leaderboard)
+  └── WSS   ──► api.codearena.never9to5ive.com  (WebSocket — duel real-time events)
 ```
 
 **Traffic flow for a typical request:**
 
 ```
 Developer's VS Code
-  → HTTPS request to api.codearena.dev
+  → HTTPS request to api.codearena.never9to5ive.com
   → nginx-proxy terminates TLS, forwards to codearena-api:3000
   → NestJS controller handles request
   → Redis cache checked first

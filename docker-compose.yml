@@ -16,9 +16,9 @@ services:
       - "3000"
     env_file: .env
     environment:
-      VIRTUAL_HOST: api.codearena.dev
+      VIRTUAL_HOST: api.codearena.never9to5ive.com
       VIRTUAL_PORT: 3000
-      LETSENCRYPT_HOST: api.codearena.dev
+      LETSENCRYPT_HOST: api.codearena.never9to5ive.com
       LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
     depends_on:
       codearena-db:
@@ -48,9 +48,9 @@ services:
     expose:
       - "80"
     environment:
-      VIRTUAL_HOST: codearena.dev,www.codearena.dev
+      VIRTUAL_HOST: codearena.never9to5ive.com,www.codearena.never9to5ive.com
       VIRTUAL_PORT: 80
-      LETSENCRYPT_HOST: codearena.dev,www.codearena.dev
+      LETSENCRYPT_HOST: codearena.never9to5ive.com,www.codearena.never9to5ive.com
       LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
     deploy:
       resources:
@@ -147,6 +147,11 @@ services:
       - nginx-conf:/etc/nginx/conf.d
     command: >
       sh -c "cp /etc/nginx/conf.d/codearena.conf /etc/nginx/conf.d/ && echo 'nginx config injected'"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 32M
     restart: "no"
     networks: []
 

@@ -26,6 +26,7 @@ interface DuelRoom {
   topic: string;
   rounds: number;
   startedAt: number | null;
+  questionStartedAt: number; // server timestamp when the current question was pushed
 }
 
 const INVITE_EXPIRY_HOURS = 24;
@@ -56,9 +57,16 @@ export class DuelService {
     const expiresAt = new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000);
     const rounds = [5, 7].includes(config.rounds) ? config.rounds : 7;
 
+    // Snapshot player A's tier at creation
+    const playerA = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { rankTier: true },
+    });
+
     const duel = await this.prisma.duel.create({
       data: {
         playerAId: userId,
+        playerARankTier: playerA.rankTier,
         topic: config.topic,
         rounds,
         inviteToken: token,
@@ -79,6 +87,7 @@ export class DuelService {
       topic: config.topic,
       rounds,
       startedAt: null,
+      questionStartedAt: 0,
     };
 
     this.rooms.set(duel.id, room);
@@ -109,9 +118,20 @@ export class DuelService {
     if (duel.playerAId === userId) return { ok: false, error: 'Cannot duel yourself' };
     if (duel.expiresAt < new Date()) return { ok: false, error: 'Invite has expired' };
 
+    // Snapshot player B's tier at join
+    const playerB = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { rankTier: true },
+    });
+
     await this.prisma.duel.update({
       where: { id: roomId },
-      data: { playerBId: userId, status: 'ACTIVE', startedAt: new Date() },
+      data: {
+        playerBId: userId,
+        playerBRankTier: playerB.rankTier,
+        status: 'ACTIVE',
+        startedAt: new Date(),
+      },
     });
 
     const room = await this.getRoom(roomId);
@@ -139,7 +159,7 @@ export class DuelService {
     userId: string,
     questionId: string,
     choice: number,
-    elapsedMs: number,
+    _elapsedMs: number, // client-reported — for display only
   ) {
     return this.withRoomLock(roomId, async () => {
       const room = await this.getRoom(roomId);
@@ -154,15 +174,18 @@ export class DuelService {
       // Score server-side — never trust the client
       const correct =
         'answer' in question ? (question as any).answer === choice : false;
+      // Use server timestamp for speed bonus — client elapsedMs is for display only
+      const questionStartTime = room.questionStartedAt || room.startedAt || Date.now();
+      const serverElapsed = Math.min(Date.now() - questionStartTime, 60_000);
       const xp = correct
         ? Math.max(
             XP.MCQ_CORRECT,
             XP.MCQ_CORRECT +
-              Math.round(XP.MCQ_SPEED_BONUS_MAX * (1 - Math.min(elapsedMs, 60_000) / 60_000)),
+              Math.round(XP.MCQ_SPEED_BONUS_MAX * (1 - serverElapsed / 60_000)),
           )
         : 0;
 
-      player.answers[questionId] = { choice, correct, elapsedMs };
+      player.answers[questionId] = { choice, correct, elapsedMs: _elapsedMs };
       if (correct) player.score += xp;
 
       await this.saveRoom(room);
@@ -198,6 +221,7 @@ export class DuelService {
       room.currentIndex += 1;
       if (room.currentIndex >= room.questions.length) return null;
 
+      room.questionStartedAt = Date.now();
       await this.saveRoom(room);
 
       return {
@@ -211,10 +235,9 @@ export class DuelService {
   // ── Finalize ──────────────────────────────────────────────────────────────
 
   async finalizeDuel(roomId: string) {
-    // Check duel still active before proceeding (guards against disconnect race)
     const duel = await this.prisma.duel.findUnique({
       where: { id: roomId },
-      select: { status: true },
+      select: { status: true, playerARankTier: true, playerBRankTier: true },
     });
     if (!duel || duel.status !== 'ACTIVE') return;
 
@@ -227,39 +250,31 @@ export class DuelService {
         ? pA!.userId
         : pB!.score > pA!.score
         ? pB!.userId
-        : null; // draw
+        : null;
 
-    await this.prisma.duel.update({
-      where: { id: roomId },
-      data: {
-        status: 'COMPLETED',
-        scoreA: pA!.score,
-        scoreB: pB!.score,
-        winnerId,
-        endedAt: new Date(),
-      },
+    // Use transactional finalize — if the process crashes mid-way,
+    // the DB is left in a consistent state and no Redis room is orphaned.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.duel.update({
+        where: { id: roomId },
+        data: {
+          status: 'COMPLETED',
+          scoreA: pA!.score,
+          scoreB: pB!.score,
+          winnerId,
+          endedAt: new Date(),
+        },
+      });
+
+      if (pB) {
+        await this.ranking.awardDuelPoints(
+          roomId, winnerId, pA!.userId, pB!.userId,
+          duel.playerARankTier, duel.playerBRankTier ?? duel.playerARankTier,
+        );
+      }
     });
 
-    // Award points via RankingService (floor protection, audit, tier calc, badges)
-    if (pB) {
-      const [playerA, playerB] = await Promise.all([
-        this.prisma.user.findUniqueOrThrow({
-          where: { id: pA!.userId },
-          select: { rankTier: true },
-        }),
-        this.prisma.user.findUniqueOrThrow({
-          where: { id: pB!.userId },
-          select: { rankTier: true },
-        }),
-      ]);
-
-      await this.ranking.awardDuelPoints(
-        roomId, winnerId, pA!.userId, pB!.userId,
-        playerA.rankTier, playerB.rankTier,
-      );
-    }
-
-    // Clean up room state
+    // Clean up room state after transaction succeeds
     this.rooms.delete(roomId);
     await this.redis.del(`duel:${roomId}`);
   }

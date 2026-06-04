@@ -10,9 +10,11 @@ import { Queue, Worker, Job } from 'bullmq';
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RankingService } from '../ranking/ranking.service';
-import { NotificationsService } from '../notifications/notifications.service';
 import { Judge0LanguageService } from '../judge0/judge0-language.service';
-import { CONTRIBUTION_POINTS } from '../ranking/ranking.constants';
+import { QuestionsService } from '../questions/questions.service';
+import { CodingQuestion, XP } from '@codearena/question-schema';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface ExecutionJobData {
   jobDbId:    string;
@@ -20,8 +22,6 @@ export interface ExecutionJobData {
   questionId: string;
   language:   string;
   code:       string;
-  testSource: string;
-  timeLimit:  number;
 }
 
 @Injectable()
@@ -34,9 +34,9 @@ export class ExecutionQueue {
     private redis: RedisService,
     private prisma: PrismaService,
     private ranking: RankingService,
-    private notifications: NotificationsService,
     private config: ConfigService,
     private judge0: Judge0LanguageService,
+    private questions: QuestionsService,
   ) {
     const connection = {
       host: this.config.get('REDIS_HOST', 'codearena-redis'),
@@ -63,7 +63,7 @@ export class ExecutionQueue {
 
   // ── Enqueue ───────────────────────────────────────────────────────────
 
-  async enqueue(data: Omit<ExecutionJobData, 'jobDbId'> & { jobDbId: string }) {
+  async enqueue(data: ExecutionJobData) {
     const job = await this.queue.add('execute', data, {
       attempts:    3,
       backoff:     { type: 'exponential', delay: 2000 },
@@ -83,7 +83,7 @@ export class ExecutionQueue {
   // ── Process ───────────────────────────────────────────────────────────
 
   private async processJob(job: Job<ExecutionJobData>) {
-    const { jobDbId, userId, questionId, language, code, testSource, timeLimit } = job.data;
+    const { jobDbId, userId, questionId, language, code } = job.data;
 
     await this.prisma.executionJob.update({
       where: { id: jobDbId },
@@ -91,6 +91,16 @@ export class ExecutionQueue {
     });
 
     try {
+      const question = this.questions.findById(questionId);
+      if (question.type !== 'coding') {
+        throw new Error('Only coding questions can be executed');
+      }
+      const codingQ = question as CodingQuestion;
+      const timeLimit = codingQ.timeLimit ?? 5000;
+
+      // Load test source from disk
+      const testSource = this.loadTestFile(codingQ.testFile, language);
+
       const judge0Url = this.config.get('JUDGE0_URL', 'http://judge0:2358');
       const judge0Token = this.config.get('JUDGE0_AUTH_TOKEN');
       const fullSource = this.buildRunnable(code, testSource, language);
@@ -120,7 +130,6 @@ export class ExecutionQueue {
 
       const data   = await response.json() as any;
 
-      // Judge0 status.id: 3 = Accepted (passed), anything else = failed/error
       const stdout = data.stdout ?? '';
       const stderr = data.stderr ?? data.compile_output ?? '';
 
@@ -130,7 +139,7 @@ export class ExecutionQueue {
 
       const results = this.parseOutput(stdout, stderr);
       const passed  = results.filter(r => r.passed).length;
-      const xp      = passed * CONTRIBUTION_POINTS.REVIEW_SUBMITTED;
+      const xp      = passed * XP.CODING_PER_TEST;
 
       const result = {
         questionId,
@@ -154,9 +163,10 @@ export class ExecutionQueue {
           where: { id: userId },
           data:  { weeklyXp: { increment: xp } },
         });
+        await this.redis.del('leaderboard:weekly');
       }
 
-      // Publish result to Redis so extension gets it via polling or pub/sub
+      // Cache result in Redis for 1 hour — the extension polls GET /execute/:jobId
       await this.redis.setJson(`exec:result:${jobDbId}`, result, 3600);
 
     } catch (err: any) {
@@ -169,6 +179,27 @@ export class ExecutionQueue {
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
+
+  private loadTestFile(testFile: string, language: string): string {
+    const questionsDir = this.config.get<string>(
+      'QUESTIONS_DIR',
+      path.join(__dirname, '../../../../questions'),
+    );
+    const candidates = [
+      path.join(questionsDir, 'coding', 'tests', testFile.replace('.test.js', `.test.${this.ext(language)}`)),
+      path.join(questionsDir, 'coding', 'tests', testFile),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return fs.readFileSync(candidate, 'utf-8');
+      }
+    }
+    throw new Error(`Test file not found for question`);
+  }
+
+  private ext(language: string): string {
+    return { javascript: 'js', typescript: 'ts', python: 'py', go: 'go' }[language] ?? 'js';
+  }
 
   private buildRunnable(userCode: string, testSource: string, lang: string): string {
     if (lang === 'javascript' || lang === 'typescript') {
@@ -186,7 +217,7 @@ export class ExecutionQueue {
     try {
       return JSON.parse(last) as Array<{ name: string; passed: boolean; error?: string }>;
     } catch {
-      return [{ name: 'Execution', passed: false, error: stderr || stdout || 'Unknown error' }];
+      return [{ name: 'Execution', failed: true, error: stderr || stdout || 'Unknown error' }];
     }
   }
 
