@@ -21,7 +21,7 @@ RUN npx prisma generate --schema=apps/api/prisma/schema.prisma
 # ── Production image ──────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init openssl libc6-compat
 WORKDIR /app
 
 ENV NODE_ENV=production
