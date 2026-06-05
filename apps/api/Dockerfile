@@ -29,7 +29,7 @@ ENV NODE_ENV=production
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/dist ./dist
 COPY --from=builder /app/apps/api/prisma ./prisma
-COPY --from=builder /app/packages/question-schema/dist ./packages/question-schema/dist
+COPY --from=builder /app/packages/question-schema ./packages/question-schema
 
 # Run migrations then start
 COPY apps/api/entrypoint.sh ./entrypoint.sh
