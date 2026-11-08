@@ -104,7 +104,7 @@
 <script>
   // Handle /duel/:token invite pages
   const path = window.location.pathname;
-  const match = path.match(/^\/duel\/([a-f0-9]+)$/);
+  const match = path.match(/^\/duel\/([a-f0-9]{16,64})$/);
 
   if (match) {
     const token = match[1];
@@ -115,9 +115,12 @@
     // Set the VS Code deep link
     document.getElementById('accept-btn').href = `vscode://codearena.codearena/duel/${token}`;
 
-    // Fetch invite details
-    fetch(`/api/duels/invite/${token}`)  // proxied by nginx to codearena-api
-      .then(r => r.json())
+    // Fetch invite details from the API (a public endpoint; api.<this host> in production)
+    const apiBase = ['localhost', '127.0.0.1'].includes(location.hostname)
+      ? 'http://localhost:3000'
+      : `https://api.${location.hostname.replace(/^www\./, '')}`;
+    fetch(`${apiBase}/duels/invite/${token}`)
+      .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then(d => {
         document.getElementById('challenger-name').textContent =
           `${d.playerA?.username ?? 'A developer'} wants to duel you`;
@@ -132,7 +135,11 @@
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
     if (token) {
-      window.location.href = `vscode://codearena.codearena/auth?token=${token}`;
+      // Pass the OAuth state through: the extension only accepts a token with the state it generated.
+      const q = new URLSearchParams({ token });
+      const state = params.get('state');
+      if (state) q.set('state', state);
+      window.location.href = `vscode://codearena.codearena/auth?${q}`;
     }
   }
 </script>
