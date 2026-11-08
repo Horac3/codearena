@@ -159,3 +159,5 @@ export function calculateXp(
   const multiplier = Math.min(2, 1 + streakDays * XP.STREAK_MULTIPLIER);
   return Math.round((baseXp + speedBonus) * multiplier);
 }
+
+export { validateQuestion, questionsFromFile } from './validate';
