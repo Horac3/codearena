@@ -16,7 +16,11 @@ export default async function setup(): Promise<void> {
     process.env.TEST_QUESTIONS_DIR ||
     require('path').join(__dirname, '../../../questions');
   process.env.JUDGE0_URL = process.env.JUDGE0_URL || 'http://localhost:3099';
-  process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-do-not-use';
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-do-not-use-in-production-0123456789';
+  // Passport's GitHub strategy refuses to construct without these
+  process.env.GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || 'test-client-id';
+  process.env.GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || 'test-client-secret';
+  process.env.GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL || 'http://localhost:3001/auth/github/callback';
 
   // Run Prisma migrations on the test database
   try {

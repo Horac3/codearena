@@ -11,11 +11,11 @@ const config: Config = {
   testEnvironment: 'node',
   testRegex: '.(e2e|integration).spec.ts$',
   transform: {
-    '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: '../tsconfig.json' }],
+    '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: '<rootDir>/../tsconfig.json' }],
   },
   moduleNameMapper: {
     '^@codearena/question-schema$':
-      '<rootDir>/../../packages/question-schema/src/index.ts',
+      '<rootDir>/../../../packages/question-schema/src/index.ts',
   },
   globalSetup: '<rootDir>/setup.ts',
   verbose: true,
