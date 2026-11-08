@@ -7,11 +7,39 @@ import {
   MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
+  WsException,
 } from '@nestjs/websockets';
-import { UseGuards, Logger } from '@nestjs/common';
+import { UseGuards, Logger, UsePipes, ValidationPipe, BadRequestException } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { IsIn, IsInt, IsString, Matches, Max, Min } from 'class-validator';
 import { DuelService } from './duel.service';
 import { WsJwtGuard } from '../auth/ws-jwt.guard';
+
+// ── Validated message payloads ──────────────────────────────────────────────
+
+class CreateDuelMessage {
+  @IsIn(['mixed', 'dsa', 'systems', 'cs-fundamentals', 'networking']) topic!: string;
+  @IsIn([5, 7]) rounds!: number;
+}
+
+class JoinDuelMessage {
+  @IsString() @Matches(/^[a-f0-9]{16,64}$/) inviteToken!: string;
+}
+
+class AnswerMessage {
+  @IsString() roomId!: string;
+  @IsString() questionId!: string;
+  @IsInt() @Min(0) @Max(3) choice!: number;
+  @IsInt() @Min(0) @Max(600_000) elapsedMs!: number;
+}
+
+const wsValidation = new ValidationPipe({
+  whitelist: true,
+  transform: true,
+  exceptionFactory: (errors) =>
+    new WsException(errors.map((e) => Object.values(e.constraints ?? {}).join(', ')).join('; ')),
+});
 
 @WebSocketGateway({
   cors: {
@@ -19,20 +47,34 @@ import { WsJwtGuard } from '../auth/ws-jwt.guard';
     credentials: true,
   },
   namespace: '/duel',
+  maxHttpBufferSize: 16 * 1024, // duel messages are tiny
 })
-export class DuelGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  @WebSocketServer() server: Server;
+@UsePipes(wsValidation)
+export class DuelGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer() server!: Server;
   private readonly logger = new Logger(DuelGateway.name);
 
-  constructor(private readonly duelService: DuelService) {}
+  constructor(
+    private readonly duelService: DuelService,
+    private readonly wsAuth: WsJwtGuard,
+  ) {}
 
-  async handleConnection(client: Socket) {
+  afterInit(server: Server) {
+    this.duelService.attachServer(server);
+  }
+
+  handleConnection(client: Socket) {
+    // Authenticate the handshake itself; unauthenticated sockets are dropped immediately.
+    if (!this.wsAuth.authenticate(client)) {
+      client.disconnect(true);
+      return;
+    }
     this.logger.log(`Client connected: ${client.id}`);
   }
 
   async handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
-    await this.duelService.handleDisconnect(client.id, this.server);
+    await this.duelService.handleDisconnect(client.id);
   }
 
   // ── CREATE DUEL ──────────────────────────────────────────────────────────
@@ -41,12 +83,16 @@ export class DuelGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('CREATE_DUEL')
   async onCreateDuel(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { topic: string; rounds: number },
+    @MessageBody() data: CreateDuelMessage,
   ) {
     const userId = client.data.userId as string;
-    const result = await this.duelService.createDuel(userId, data, client.id);
-    client.join(result.roomId);
-    client.emit('DUEL_CREATED', result);
+    try {
+      const result = await this.duelService.createDuel(userId, data, client.id);
+      await client.join(result.roomId);
+      client.emit('DUEL_CREATED', result);
+    } catch (e) {
+      client.emit('DUEL_ERROR', { message: errorMessage(e) });
+    }
   }
 
   // ── JOIN DUEL ────────────────────────────────────────────────────────────
@@ -55,35 +101,33 @@ export class DuelGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('JOIN_DUEL')
   async onJoinDuel(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { roomId: string },
+    @MessageBody() data: JoinDuelMessage,
   ) {
     const userId = client.data.userId as string;
-    const result = await this.duelService.joinDuel(
-      userId,
-      data.roomId,
-      client.id,
-      this.server,
-    );
-
-    if (result.ok) {
-      client.join(data.roomId);
-      // Notify both players
-      this.server.to(data.roomId).emit('DUEL_READY', {
-        roomId: data.roomId,
-        players: result.players,
-      });
-
-      // Start 3-second countdown then push first question to both simultaneously
-      setTimeout(() => {
-        this.server.to(data.roomId).emit('COUNTDOWN', { seconds: 3 });
-      }, 500);
-
-      setTimeout(async () => {
-        await this.pushNextQuestion(data.roomId);
-      }, 3500);
-    } else {
+    const result = await this.duelService.joinDuel(userId, data.inviteToken, client.id);
+    if (!result.ok) {
       client.emit('DUEL_ERROR', { message: result.error });
+      return;
     }
+
+    await client.join(result.roomId);
+    const players = await this.duelService.getPlayers(result.roomId);
+
+    if (result.rejoined) {
+      // Catch the returning player up; a waiting creator just keeps waiting.
+      client.emit('DUEL_READY', { roomId: result.roomId, players, you: userId });
+      const current = await this.duelService.getCurrentQuestionFor(result.roomId);
+      if (current) client.emit('QUESTION', current);
+      client.to(result.roomId).emit('PLAYER_RECONNECTED', { userId });
+      return;
+    }
+
+    // Tell each player who they are, so clients can label "you" and the opponent.
+    const sockets = await this.server.in(result.roomId).fetchSockets();
+    for (const s of sockets) {
+      s.emit('DUEL_READY', { roomId: result.roomId, players, you: s.data.userId });
+    }
+    this.duelService.startDuel(result.roomId);
   }
 
   // ── SUBMIT ANSWER ────────────────────────────────────────────────────────
@@ -92,60 +136,18 @@ export class DuelGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('ANSWER')
   async onAnswer(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { roomId: string; questionId: string; choice: number; elapsedMs: number },
+    @MessageBody() data: AnswerMessage,
   ) {
     const userId = client.data.userId as string;
-    // Timestamp is recorded server-side — client-supplied elapsedMs is for
-    // display only; actual speed scoring uses server receive time
-    const result = await this.duelService.recordAnswer(
-      data.roomId,
-      userId,
-      data.questionId,
-      data.choice,
-      data.elapsedMs,
-    );
-
-    if (!result) return;
-
-    // Broadcast updated scores to the room
-    this.server.to(data.roomId).emit('SCORE_UPDATE', result.scores);
-
-    // If both players have answered (or timer expired), advance
-    if (result.bothAnswered) {
-      if (result.duelComplete) {
-        this.server.to(data.roomId).emit('DUEL_END', result.summary);
-        await this.duelService.finalizeDuel(data.roomId);
-      } else {
-        setTimeout(async () => {
-          await this.pushNextQuestion(data.roomId);
-        }, 1500); // 1.5s to show result before next question
-      }
-    }
+    // Speed scoring uses the server's receive time; elapsedMs is display-only.
+    await this.duelService.recordAnswer(data.roomId, userId, data.questionId, data.choice, data.elapsedMs);
   }
 
-  // ── TIMEOUT (client signals question timer expired) ───────────────────────
+  // The server runs the question timer, so the client's QUESTION_TIMEOUT message is no longer needed.
+}
 
-  @UseGuards(WsJwtGuard)
-  @SubscribeMessage('QUESTION_TIMEOUT')
-  async onTimeout(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: { roomId: string; questionId: string },
-  ) {
-    const userId = client.data.userId as string;
-    await this.duelService.recordTimeout(data.roomId, userId, data.questionId);
-  }
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  private async pushNextQuestion(roomId: string) {
-    const next = await this.duelService.getNextQuestion(roomId);
-    if (!next) return;
-    // Both players receive the exact same question in the same emit call
-    this.server.to(roomId).emit('QUESTION', {
-      question: next.question,
-      index: next.index,
-      total: next.total,
-      timerMs: 60_000,
-    });
-  }
+function errorMessage(e: unknown): string {
+  if (e instanceof BadRequestException) return e.message;
+  if (e instanceof WsException) return String(e.getError());
+  return 'Something went wrong';
 }
