@@ -11,8 +11,11 @@
 
 name: CD
 
+# Runs only after CI has passed on main, and deploys exactly the commit CI tested.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
 
 env:
@@ -23,12 +26,15 @@ jobs:
   build-and-push:
     name: Build & push images
     runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     permissions:
       contents: read
       packages: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set lowercase GHCR owner
         id: vars
@@ -56,7 +62,7 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.vars.outputs.owner }}/codearena-api:latest
-            ${{ env.REGISTRY }}/${{ steps.vars.outputs.owner }}/codearena-api:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ steps.vars.outputs.owner }}/codearena-api:${{ github.event.workflow_run.head_sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -69,7 +75,7 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.vars.outputs.owner }}/codearena-web:latest
-            ${{ env.REGISTRY }}/${{ steps.vars.outputs.owner }}/codearena-web:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ steps.vars.outputs.owner }}/codearena-web:${{ github.event.workflow_run.head_sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -77,7 +83,6 @@ jobs:
     name: Deploy to VPS
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Set lowercase GHCR owner

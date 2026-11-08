@@ -1,5 +1,6 @@
 // apps/api/src/users/users.service.ts
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -14,6 +15,28 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
+  /**
+   * Find or create the user for a GitHub login. Users are keyed on githubId only:
+   * GitHub usernames can be renamed and later reused by someone else, so the stored
+   * username and avatar are refreshed on every login.
+   */
+  async upsertFromGithub(profile: { id: string; username: string; avatarUrl?: string; email?: string }) {
+    return this.prisma.user.upsert({
+      where: { githubId: profile.id },
+      create: {
+        githubId: profile.id,
+        username: profile.username,
+        avatarUrl: profile.avatarUrl,
+        email: profile.email,
+      },
+      update: {
+        username: profile.username,
+        avatarUrl: profile.avatarUrl,
+        ...(profile.email ? { email: profile.email } : {}),
+      },
+    });
+  }
+
   create(profile: { id: string; username: string; avatarUrl?: string; email?: string }) {
     return this.prisma.user.create({
       data: {
@@ -25,50 +48,18 @@ export class UsersService {
     });
   }
 
-  async updateStreak(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return;
+  /** Record activity today and return the updated user (streak counted in UTC calendar days). */
+  async updateStreak(userId: string, db: Prisma.TransactionClient = this.prisma, now = new Date()) {
+    const user = await db.user.findUnique({ where: { id: userId } });
+    if (!user) return null;
 
-    const now = new Date();
-    const lastActive = user.lastActiveAt;
-    const daysSinceLast = lastActive
-      ? Math.floor((now.getTime() - lastActive.getTime()) / 86_400_000)
-      : null;
-
-    let streak = user.streak;
-    if (daysSinceLast === null || daysSinceLast > 1) {
-      streak = 1; // reset
-    } else if (daysSinceLast === 1) {
-      streak += 1; // extend
-    }
-    // daysSinceLast === 0 → same day, no change
-
+    const streak = nextStreak(user.streak, user.lastActiveAt, now);
     const longestStreak = Math.max(streak, user.longestStreak);
 
-    return this.prisma.user.update({
+    return db.user.update({
       where: { id: userId },
       data: { streak, longestStreak, lastActiveAt: now },
     });
-  }
-
-  async addXp(userId: string, xp: number) {
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        totalXp: { increment: xp },
-        weeklyXp: { increment: xp },
-      },
-    });
-    // Level up: every 1000 XP is a level
-    const newLevel = Math.floor(user.totalXp / 1000) + 1;
-    if (newLevel !== user.level) {
-      const updated = await this.prisma.user.update({
-        where: { id: userId },
-        data: { level: newLevel },
-      });
-      return updated;
-    }
-    return user;
   }
 
   getProfile(userId: string) {
@@ -86,4 +77,22 @@ export class UsersService {
       },
     });
   }
+}
+
+/** UTC calendar date (YYYY-MM-DD) for a timestamp. */
+export function utcDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Streak after activity at `now`: unchanged if already active today (UTC),
+ * +1 if the last activity was yesterday, otherwise restarts at 1.
+ */
+export function nextStreak(current: number, lastActiveAt: Date | null, now: Date): number {
+  if (!lastActiveAt) return 1;
+  const today = utcDay(now);
+  const last = utcDay(lastActiveAt);
+  if (last === today) return Math.max(current, 1);
+  const yesterday = utcDay(new Date(now.getTime() - 86_400_000));
+  return last === yesterday ? current + 1 : 1;
 }

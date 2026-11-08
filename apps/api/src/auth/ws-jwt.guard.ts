@@ -12,12 +12,16 @@ export class WsJwtGuard implements CanActivate {
   ) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const client: Socket = context.switchToWs().getClient();
-    // Token comes from socket handshake auth: { token: 'Bearer xxx' }
-    const token =
-      (client.handshake.auth?.token as string)?.replace('Bearer ', '') ??
-      (client.handshake.headers?.authorization as string)?.replace('Bearer ', '');
+    return this.authenticate(context.switchToWs().getClient<Socket>());
+  }
 
+  /** Verify the socket's JWT and set client.data.userId / username. Returns false if invalid. */
+  authenticate(client: Socket): boolean {
+    // Token comes from socket handshake auth: { token: 'Bearer xxx' }
+    const raw =
+      (client.handshake.auth?.token as string | undefined) ??
+      (client.handshake.headers?.authorization as string | undefined);
+    const token = raw?.replace(/^Bearer\s+/i, '');
     if (!token) return false;
 
     try {

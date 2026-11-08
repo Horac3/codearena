@@ -16,11 +16,7 @@ export class AuthService {
     avatarUrl: string;
     email?: string;
   }) {
-    let user = await this.users.findByGithubId(profile.id);
-    if (!user) {
-      user = await this.users.create(profile);
-    }
-    return user;
+    return this.users.upsertFromGithub({ ...profile, id: String(profile.id) });
   }
 
   signToken(userId: string, username: string): string {

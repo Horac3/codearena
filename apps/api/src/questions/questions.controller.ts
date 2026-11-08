@@ -3,12 +3,12 @@ import {
   Controller, Get, Post, Body, Param, Req, UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsString, IsObject } from 'class-validator';
+import { IsObject } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { QuestionsService } from './questions.service';
 
 class SubmitDailyDto {
-  @IsObject() answers: Record<string, number>;
+  @IsObject() answers!: Record<string, number>;
 }
 
 @ApiTags('questions')

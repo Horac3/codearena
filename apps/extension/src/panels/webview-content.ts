@@ -1,5 +1,6 @@
 // apps/extension/src/panels/webview-content.ts
 import * as vscode from 'vscode';
+import { randomBytes } from 'crypto';
 
 export function getWebviewContent(
   mode: string,
@@ -7,6 +8,11 @@ export function getWebviewContent(
   context: vscode.ExtensionContext,
 ): string {
   const nonce = getNonce();
+  const scriptUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(context.extensionUri, 'media', 'arena.js'),
+  );
+  const tab = (name: string, label: string, active: boolean) =>
+    `<button class="nav-tab ${active ? 'active' : ''}" data-action="nav" data-mode="${name}">${label}</button>`;
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,8 +21,8 @@ export function getWebviewContent(
     content="default-src 'none';
              style-src 'nonce-${nonce}' https://fonts.googleapis.com;
              font-src https://fonts.gstatic.com;
-             script-src 'nonce-${nonce}';
-             connect-src https://api.codearena.never9to5ive.com wss://api.codearena.never9to5ive.com;"/>
+             img-src ${webview.cspSource} https: data:;
+             script-src 'nonce-${nonce}' ${webview.cspSource};"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -281,6 +287,25 @@ export function getWebviewContent(
     .completion-sub { color: var(--text-muted); margin: 8px 0 24px; font-size: 13px; }
     .xp-earned { font-family: var(--mono); font-size: 20px; color: var(--amber); margin-bottom: 20px; }
 
+    /* ── Helpers (no inline style attributes: the CSP blocks them) ── */
+    .row-gap { display: flex; gap: 8px; align-items: center; }
+    .muted { color: var(--text-muted); font-size: 13px; margin-bottom: 12px; }
+    .small { font-size: 11px; }
+    .field { margin-bottom: 16px; }
+    .label { font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px; }
+    .select { width: 100%; background: var(--bg3); color: var(--text); border: 1px solid var(--border2); border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+    .rounds-btn.active { border-color: var(--green); color: var(--green); }
+    .option.locked { pointer-events: none; }
+    .countdown { text-align: center; padding: 60px 0; }
+    .countdown-num { font-family: var(--mono); font-size: 72px; font-weight: 700; color: var(--green); margin-bottom: 12px; }
+    .versus { font-family: var(--mono); font-size: 20px; margin: 16px 0; color: var(--text); }
+    .name-a { font-size: 12px; color: #4ec9b0; }
+    .name-b { font-size: 12px; color: #c586c0; }
+    .btn-row.center { justify-content: center; }
+    .duel-banner { display: none; margin-bottom: 10px; padding: 8px 12px; border: 1px solid var(--amber); background: var(--amber-dim); color: var(--amber); border-radius: 6px; font-size: 12px; }
+    .duel-banner.visible { display: block; }
+    .card + .card { margin-top: 12px; }
+
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
@@ -292,432 +317,21 @@ export function getWebviewContent(
   <div class="top-bar">
     <div class="logo">CODE<span>ARENA</span> ⚡</div>
     <div class="nav-tabs">
-      <button class="nav-tab ${mode === 'daily' ? 'active' : ''}"      onclick="navigate('daily')">Daily</button>
-      <button class="nav-tab ${mode === 'duel-lobby' || mode === 'duel-active' ? 'active' : ''}" onclick="navigate('duel')">Duel</button>
-      <button class="nav-tab ${mode === 'practice' ? 'active' : ''}"   onclick="navigate('practice')">Practice</button>
-      <button class="nav-tab" onclick="navigate('leaderboard')">Ranks</button>
+      ${tab('daily', 'Daily', mode === 'daily')}
+      ${tab('duel', 'Duel', mode === 'duel-lobby' || mode === 'duel-active')}
+      ${tab('weekly', 'Weekly', mode === 'weekly')}
+      ${tab('rank', 'Rank', mode === 'rank')}
     </div>
   </div>
   <div class="content" id="content">
     <div class="loading">Loading</div>
   </div>
 </div>
-
-<script nonce="${nonce}">
-const vscode = acquireVsCodeApi();
-
-// ── Navigation ────────────────────────────────────────────────────────────
-
-function navigate(mode) {
-  const types = { daily: 'OPEN_DAILY', duel: 'OPEN_DUEL_LOBBY', practice: 'OPEN_PRACTICE' };
-  if (types[mode]) post(types[mode]);
-}
-
-// ── Message bus ───────────────────────────────────────────────────────────
-
-function post(type, payload) { vscode.postMessage({ type, payload }); }
-
-window.addEventListener('message', (event) => {
-  const { type, payload } = event.data;
-  switch (type) {
-    case 'DAILY_LOADED':    renderDaily(payload.questions); break;
-    case 'DUEL_CREATED':    renderDuelLobby(payload); break;
-    case 'DUEL_INVITE_LOADED': renderDuelWaiting(payload.invite); break;
-    case 'DUEL_READY':      renderDuelReady(payload); break;
-    case 'COUNTDOWN':       renderCountdown(payload.seconds); break;
-    case 'QUESTION':        renderDuelQuestion(payload); break;
-    case 'SCORE_UPDATE':    updateScores(payload); break;
-    case 'DUEL_END':        renderDuelEnd(payload); break;
-    case 'PLAYER_DISCONNECTED': renderDisconnected(payload); break;
-    case 'EXECUTION_RESULT': renderExecutionResult(payload); break;
-    case 'EXECUTION_ERROR':  renderExecutionError(payload); break;
-  }
-});
-
-// ── Daily blitz ───────────────────────────────────────────────────────────
-
-let state = { questions: [], current: 0, score: 0, answered: false, totalXp: 0 };
-
-function renderDaily(questions) {
-  state = { questions, current: 0, score: 0, answered: false, totalXp: 0 };
-  renderQuestion();
-}
-
-function renderQuestion() {
-  const q = state.questions[state.current];
-  if (!q) { renderCompletion(); return; }
-
-  const diffLabels = { 1: 'easy', 2: 'medium', 3: 'hard' };
-  const c = document.getElementById('content');
-  c.innerHTML = \`
-    <div class="progress-row">
-      <div class="progress-dots">
-        \${state.questions.map((_, i) =>
-          \`<div class="dot \${i < state.current ? 'done' : i === state.current ? 'current' : ''}"></div>\`
-        ).join('')}
-      </div>
-      <div class="xp-badge">+\${state.totalXp} XP</div>
-    </div>
-    <div class="timer-bar-bg"><div class="timer-bar" id="tbar"></div></div>
-    <div class="card">
-      <div class="card-header">
-        <div style="display:flex;gap:6px;align-items:center;">
-          <span class="topic-tag">\${q.topic}</span>
-          <span class="diff diff-\${q.difficulty}">\${diffLabels[q.difficulty]}</span>
-        </div>
-        <span class="card-meta" id="timer-label">1:00</span>
-      </div>
-      <div class="question-stem">\${q.stem}</div>
-      \${q.code ? \`<div class="code-block">\${escHtml(q.code)}</div>\` : ''}
-      <div class="options" id="opts">
-        \${q.options.map((opt, i) => \`
-          <div class="option" data-i="\${i}" onclick="selectMCQ(this, \${i})">
-            <div class="option-key">\${String.fromCharCode(65+i)}</div>
-            <span>\${escHtml(opt)}</span>
-          </div>\`).join('')}
-      </div>
-      <div class="explanation" id="exp">\${escHtml(q.explanation)}</div>
-      <div class="btn-row">
-        <button class="btn btn-primary" id="next-btn" disabled onclick="nextQuestion()">
-          \${state.current < state.questions.length - 1 ? 'Next question →' : 'See results'}
-        </button>
-        <button class="btn btn-ghost" onclick="skipQuestion()">Skip</button>
-      </div>
-    </div>\`;
-  startTimer(60);
-}
-
-function selectMCQ(el, choice) {
-  if (state.answered) return;
-  state.answered = true;
-  stopTimer();
-
-  const q = state.questions[state.current];
-  const correct = q.answer === choice;
-
-  document.querySelectorAll('.option').forEach((o, i) => {
-    if (i === q.answer) o.classList.add('correct');
-    else if (i === choice && !correct) o.classList.add('wrong');
-    o.style.pointerEvents = 'none';
-  });
-
-  document.getElementById('exp').classList.add('visible');
-
-  if (correct) {
-    state.score++;
-    const xp = 50 + Math.round(30 * Math.max(0, 1 - elapsedSecs / 60));
-    state.totalXp += xp;
-  }
-
-  document.getElementById('next-btn').disabled = false;
-}
-
-function nextQuestion() {
-  state.current++;
-  state.answered = false;
-  renderQuestion();
-}
-
-function skipQuestion() {
-  state.current++;
-  state.answered = false;
-  renderQuestion();
-}
-
-function renderCompletion() {
-  const pct = Math.round((state.score / state.questions.length) * 100);
-  document.getElementById('content').innerHTML = \`
-    <div class="completion">
-      <div class="completion-score">\${state.score}/\${state.questions.length}</div>
-      <div class="completion-sub">You answered \${pct}% correctly</div>
-      <div class="xp-earned">+\${state.totalXp} XP earned</div>
-      <button class="btn btn-primary" onclick="post('OPEN_DAILY')">Play again tomorrow</button>
-    </div>\`;
-}
-
-// ── Duel lobby ────────────────────────────────────────────────────────────
-
-function renderDuelLobby(data) {
-  const c = document.getElementById('content');
-  if (data && data.inviteLink) {
-    c.innerHTML = \`
-      <div class="card">
-        <div class="card-header"><div class="card-title">Duel created ⚔</div></div>
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">Share this link with your opponent. The duel starts when they accept.</p>
-        <div class="invite-link">
-          <span>\${data.inviteLink}</span>
-          <span class="copy-btn" onclick="copyLink('\${data.inviteLink}')">Copy</span>
-        </div>
-        <p style="font-size:11px;color:var(--text-muted);">VS Code link also copied to clipboard.</p>
-      </div>\`;
-    return;
-  }
-
-  const topics = ['mixed','dsa','systems','cs-fundamentals','networking'];
-  c.innerHTML = \`
-    <div class="card">
-      <div class="card-header"><div class="card-title">Create a duel ⚔</div></div>
-      <div style="margin-bottom:14px;">
-        <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">Topic</label>
-        <select id="duel-topic" style="width:100%;background:var(--bg3);color:var(--text);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;font-size:13px;">
-          \${topics.map(t => \`<option value="\${t}">\${t}</option>\`).join('')}
-        </select>
-      </div>
-      <div style="margin-bottom:18px;">
-        <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">Rounds</label>
-        <div style="display:flex;gap:8px;">
-          \${[5,7].map(r => \`<button class="btn btn-ghost rounds-btn" data-r="\${r}" onclick="setRounds(this,\${r})">\${r} rounds</button>\`).join('')}
-        </div>
-      </div>
-      <button class="btn btn-primary" onclick="createDuel()">Generate invite link →</button>
-    </div>\`;
-
-  document.querySelector('[data-r="7"]').classList.add('active');
-  document.querySelector('[data-r="7"]').style.borderColor = 'var(--green)';
-  document.querySelector('[data-r="7"]').style.color = 'var(--green)';
-  window._duelRounds = 7;
-}
-
-function setRounds(el, r) {
-  document.querySelectorAll('.rounds-btn').forEach(b => {
-    b.style.borderColor = ''; b.style.color = '';
-  });
-  el.style.borderColor = 'var(--green)';
-  el.style.color = 'var(--green)';
-  window._duelRounds = r;
-}
-
-function createDuel() {
-  const topic = document.getElementById('duel-topic').value;
-  post('CREATE_DUEL', { topic, rounds: window._duelRounds || 7 });
-}
-
-function copyLink(link) {
-  navigator.clipboard.writeText(link).catch(() => {});
-}
-
-// ── Duel in-progress ──────────────────────────────────────────────────────
-
-let duelState = { roomId: null, scores: {}, players: [], total: 0 };
-
-function renderDuelWaiting(invite) {
-  duelState.roomId = invite.id;
-  document.getElementById('content').innerHTML = \`
-    <div class="card">
-      <div class="card-header"><div class="card-title">Joining duel…</div></div>
-      <p style="font-size:13px;color:var(--text-muted);">Connecting to room. Waiting for host to start…</p>
-    </div>\`;
-}
-
-function renderDuelReady(data) {
-  duelState.players = data.players;
-  duelState.players.forEach(p => { duelState.scores[p.userId] = 0; });
-  document.getElementById('content').innerHTML = \`
-    <div class="loading">Get ready</div>\`;
-}
-
-let cdInterval;
-function renderCountdown(seconds) {
-  let s = seconds;
-  document.getElementById('content').innerHTML = \`
-    <div style="text-align:center;padding:60px 0;">
-      <div style="font-family:var(--mono);font-size:72px;font-weight:700;color:var(--green)" id="cd">\${s}</div>
-      <div style="color:var(--text-muted);margin-top:12px;">Get ready…</div>
-    </div>\`;
-  cdInterval = setInterval(() => {
-    s--;
-    const el = document.getElementById('cd');
-    if (el) el.textContent = s > 0 ? s : 'GO!';
-    if (s <= 0) clearInterval(cdInterval);
-  }, 1000);
-}
-
-function renderDuelQuestion(data) {
-  clearInterval(cdInterval);
-  const { question: q, index, total } = data;
-  duelState.total = total;
-  duelState.currentQ = q;
-
-  const [pA, pB] = duelState.players;
-  const sA = duelState.scores[pA?.userId] || 0;
-  const sB = duelState.scores[pB?.userId] || 0;
-  const totalScore = sA + sB || 1;
-
-  document.getElementById('content').innerHTML = \`
-    <div class="duel-header">
-      <div class="player-chip">
-        <div class="avatar av-a">\${(pA?.userId||'?').slice(0,2).toUpperCase()}</div>
-        <span style="font-size:12px;color:#4ec9b0">\${pA?.userId||'You'}</span>
-      </div>
-      <div>
-        <div class="score-display">\${sA} · \${sB}</div>
-        <div class="score-sub">Q\${index+1} of \${total}</div>
-      </div>
-      <div class="player-chip">
-        <div class="avatar av-b">\${(pB?.userId||'?').slice(0,2).toUpperCase()}</div>
-        <span style="font-size:12px;color:#c586c0">\${pB?.userId||'Opponent'}</span>
-      </div>
-    </div>
-    <div class="duel-progress-bar">
-      <div class="dp-a" id="dpa" style="width:\${Math.round(sA/totalScore*100)}%"></div>
-      <div class="dp-b" id="dpb" style="width:\${Math.round(sB/totalScore*100)}%"></div>
-    </div>
-    <div class="card">
-      <div class="timer-bar-bg"><div class="timer-bar" id="tbar"></div></div>
-      <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;">
-        <span class="topic-tag">\${q.topic}</span>
-        <span class="timer-label" id="timer-label">1:00</span>
-      </div>
-      <div class="question-stem">\${q.stem}</div>
-      \${q.code ? \`<div class="code-block">\${escHtml(q.code)}</div>\` : ''}
-      <div class="options" id="opts">
-        \${(q.options||[]).map((opt, i) => \`
-          <div class="option" data-i="\${i}" onclick="submitDuelAnswer(\${i})">
-            <div class="option-key">\${String.fromCharCode(65+i)}</div>
-            <span>\${escHtml(opt)}</span>
-          </div>\`).join('')}
-      </div>
-    </div>\`;
-
-  startTimer(60, () => {
-    post('QUESTION_TIMEOUT', { roomId: duelState.roomId, questionId: q.id });
-  });
-}
-
-function submitDuelAnswer(choice) {
-  if (!duelState.currentQ) return;
-  document.querySelectorAll('.option').forEach(o => { o.classList.add('selected'); o.style.pointerEvents = 'none'; });
-  document.querySelectorAll('.option')[choice].classList.add('selected');
-  stopTimer();
-  post('SUBMIT_ANSWER', {
-    roomId: duelState.roomId,
-    questionId: duelState.currentQ.id,
-    choice,
-    elapsedMs: elapsedSecs * 1000,
-  });
-}
-
-function updateScores(scores) {
-  Object.assign(duelState.scores, scores);
-  const [pA, pB] = duelState.players;
-  const sA = scores[pA?.userId] || 0;
-  const sB = scores[pB?.userId] || 0;
-  const t = sA + sB || 1;
-  const dpa = document.getElementById('dpa');
-  const dpb = document.getElementById('dpb');
-  if (dpa) dpa.style.width = Math.round(sA/t*100) + '%';
-  if (dpb) dpb.style.width = Math.round(sB/t*100) + '%';
-}
-
-function renderDuelEnd(data) {
-  stopTimer();
-  const [pA, pB] = duelState.players;
-  const sA = data.scores[pA?.userId] || 0;
-  const sB = data.scores[pB?.userId] || 0;
-  const winner = data.winner === 'draw' ? 'Draw!' : data.winner === (pA?.userId) ? 'You win! 🎉' : 'Opponent wins';
-  document.getElementById('content').innerHTML = \`
-    <div class="completion">
-      <div class="completion-score">\${winner}</div>
-      <div style="font-family:var(--mono);font-size:20px;margin:16px 0;color:var(--text)">\${sA} <span style="color:var(--text-muted)">vs</span> \${sB}</div>
-      <div class="xp-earned">+\${data.winner !== 'draw' ? (sA > sB ? '100' : '20') : '50'} XP</div>
-      <div style="display:flex;gap:10px;justify-content:center;">
-        <button class="btn btn-primary" onclick="post('OPEN_DUEL_LOBBY')">Rematch</button>
-        <button class="btn btn-ghost" onclick="post('OPEN_DAILY')">Daily blitz</button>
-      </div>
-    </div>\`;
-}
-
-function renderDisconnected(data) {
-  document.getElementById('content').innerHTML = \`
-    <div class="completion">
-      <div style="font-size:32px;margin-bottom:16px;">⚡</div>
-      <div style="font-size:18px;font-weight:600;margin-bottom:8px;">Opponent disconnected</div>
-      <div style="color:var(--text-muted);margin-bottom:24px;font-size:13px;">\${data.message}</div>
-      <button class="btn btn-primary" onclick="post('OPEN_DUEL_LOBBY')">Back to lobby</button>
-    </div>\`;
-}
-
-// ── Execution results (coding challenges) ─────────────────────────────────
-
-function renderExecutionResult(r) {
-  const existing = document.getElementById('exec-results');
-  const html = \`
-    <div id="exec-results" style="margin-top:12px;">
-      <div style="font-family:var(--mono);font-size:12px;margin-bottom:8px;color:\${r.failed===0?'var(--green)':'var(--amber)'}">
-        \${r.passed}/\${r.total} tests passed · \${r.executionMs}ms · +\${r.xpAwarded} XP
-      </div>
-      \${r.results.map(t => \`
-        <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border)">
-          <span style="font-family:var(--mono);font-size:11px;color:\${t.passed?'var(--green)':'var(--red)'}">\${t.passed?'✓':'✗'}</span>
-          <div>
-            <div style="font-size:12px;">\${escHtml(t.name)}</div>
-            \${t.error ? \`<div style="font-family:var(--mono);font-size:11px;color:var(--red);margin-top:3px;">\${escHtml(t.error)}</div>\` : ''}
-          </div>
-        </div>\`).join('')}
-    </div>\`;
-  if (existing) existing.outerHTML = html;
-  else document.getElementById('content').insertAdjacentHTML('beforeend', html);
-}
-
-function renderExecutionError(data) {
-  document.getElementById('content').insertAdjacentHTML('beforeend',
-    \`<div style="margin-top:12px;font-family:var(--mono);font-size:12px;color:var(--red);background:var(--red-dim);border:1px solid var(--red);border-radius:6px;padding:10px 12px;">\${escHtml(data.message)}</div>\`);
-}
-
-// ── Timer ─────────────────────────────────────────────────────────────────
-
-let timerInterval, elapsedSecs = 0;
-
-function startTimer(seconds, onExpire) {
-  elapsedSecs = 0;
-  let remaining = seconds;
-  updateTimerBar(remaining, seconds);
-  clearInterval(timerInterval);
-  timerInterval = setInterval(() => {
-    remaining--;
-    elapsedSecs++;
-    updateTimerBar(remaining, seconds);
-    const label = document.getElementById('timer-label');
-    if (label) {
-      const m = Math.floor(remaining / 60);
-      const s = remaining % 60;
-      label.textContent = m + ':' + String(s).padStart(2,'0');
-      label.className = 'timer-label' + (remaining <= 10 ? ' urgent' : '');
-    }
-    if (remaining <= 0) {
-      clearInterval(timerInterval);
-      if (onExpire) onExpire();
-    }
-  }, 1000);
-}
-
-function stopTimer() { clearInterval(timerInterval); }
-
-function updateTimerBar(remaining, total) {
-  const bar = document.getElementById('tbar');
-  if (!bar) return;
-  const pct = Math.round((remaining / total) * 100);
-  bar.style.width = pct + '%';
-  bar.className = 'timer-bar' + (pct <= 25 ? ' urgent' : pct <= 50 ? ' warn' : '');
-}
-
-// ── Utils ─────────────────────────────────────────────────────────────────
-
-function escHtml(s) {
-  return String(s ?? '')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-</script>
+<script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
 }
 
 function getNonce(): string {
-  let text = '';
-  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
+  return randomBytes(16).toString('hex');
 }

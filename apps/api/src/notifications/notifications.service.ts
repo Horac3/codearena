@@ -1,5 +1,6 @@
 // apps/api/src/notifications/notifications.service.ts
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -17,8 +18,17 @@ export class NotificationsService {
     private redis: RedisService,
   ) {}
 
-  async send(userId: string, payload: NotificationPayload): Promise<void> {
-    await this.prisma.notification.create({
+  /**
+   * Store a notification and publish it to connected clients.
+   * Pass `db` when calling from inside a transaction so the row is written on the same
+   * connection (a second connection could block on the transaction's row locks).
+   */
+  async send(
+    userId: string,
+    payload: NotificationPayload,
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<void> {
+    await db.notification.create({
       data: { userId, ...payload },
     });
     // Pub/sub so connected WebSocket clients get it in real time

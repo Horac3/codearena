@@ -24,10 +24,7 @@ jobs:
       - name: Build question-schema
         run: npx tsc --project packages/question-schema/tsconfig.json
       - name: Validate all question JSON files
-        run: node -e "
-          const {execSync}=require('child_process');
-          execSync('node -r ts-node/register packages/question-schema/src/validate-cli.ts questions/',{stdio:'inherit'});
-        " || npx ts-node --project packages/question-schema/tsconfig.json packages/question-schema/src/validate-cli.ts questions/
+        run: npx ts-node --project packages/question-schema/tsconfig.json packages/question-schema/src/validate-cli.ts questions/
       - name: Check for duplicate question IDs
         run: node .github/scripts/check-duplicates.js
 
@@ -51,6 +48,9 @@ jobs:
       - run: npm ci
       - name: Build question-schema
         run: npx tsc --project packages/question-schema/tsconfig.json
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: npx prisma generate --schema=./prisma/schema.prisma
       - name: Type-check API
         working-directory: apps/api
         run: npx tsc --noEmit

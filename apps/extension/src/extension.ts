@@ -37,9 +37,15 @@ export function activate(context: vscode.ExtensionContext) {
       async handleUri(uri: vscode.Uri) {
         // Auth callback
         if (uri.path === '/auth') {
-          const token = new URLSearchParams(uri.query).get('token');
+          const params = new URLSearchParams(uri.query);
+          const token = params.get('token');
           if (token) {
-            await auth.setToken(token);
+            if (!(await auth.completeLogin(token, params.get('state')))) {
+              vscode.window.showWarningMessage(
+                'CodeArena: ignored a sign-in link that this VS Code window did not start. Use "CodeArena: Sign in" to sign in.',
+              );
+              return;
+            }
             await status.refresh();
             menuProvider.refresh();
             leaderboardProvider.refresh();
@@ -49,6 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Duel invite
         if (uri.path.startsWith('/duel/')) {
           const token = uri.path.replace('/duel/', '');
+          if (!/^[a-f0-9]{16,64}$/.test(token)) return;
           if (!auth.isAuthenticated()) {
             vscode.window.showInformationMessage(
               '⚡ Sign in to accept this duel.', 'Sign in',
@@ -88,11 +95,12 @@ export function activate(context: vscode.ExtensionContext) {
       ArenaPanel.openRank(context, api);
     }),
 
-    vscode.commands.registerCommand('codearena.login', () => {
+    vscode.commands.registerCommand('codearena.login', async () => {
       const apiUrl = vscode.workspace
         .getConfiguration('codearena')
         .get<string>('apiUrl', 'https://api.codearena.never9to5ive.com');
-      vscode.env.openExternal(vscode.Uri.parse(`${apiUrl}/auth/github`));
+      const state = await auth.beginLogin();
+      vscode.env.openExternal(vscode.Uri.parse(`${apiUrl}/auth/github?state=${state}`));
     }),
 
     vscode.commands.registerCommand('codearena.logout', async () => {

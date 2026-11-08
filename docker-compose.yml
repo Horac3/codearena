@@ -110,7 +110,7 @@ services:
       redis-server
         --appendonly yes
         --maxmemory 256mb
-        --maxmemory-policy allkeys-lru
+        --maxmemory-policy noeviction
         --hz 20
         --activerehashing yes
     volumes:

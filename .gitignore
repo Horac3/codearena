@@ -38,3 +38,7 @@ Thumbs.db
 
 # Prisma
 apps/api/prisma/migrations/dev.db
+.claude/settings.local.json
+.claude/kit/logs/
+CLAUDE.local.md
+*.kit-new

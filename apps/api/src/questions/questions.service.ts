@@ -7,13 +7,13 @@ import * as path from 'path';
 import seedrandom from 'seedrandom';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { Question, Topic, XP } from '@codearena/question-schema';
+import { Question, Topic, questionsFromFile, validateQuestion } from '@codearena/question-schema';
+import { Prisma } from '@prisma/client';
 import { UsersService } from '../users/users.service';
 import { RankingService } from '../ranking/ranking.service';
 import { ContributionsService } from '../contributions/contributions.service';
 import {
   DAILY_POINTS,
-  calculateSpeedBonus,
   calculateStreakMultiplier,
 } from '../ranking/ranking.constants';
 
@@ -48,33 +48,19 @@ export class QuestionsService {
       'QUESTIONS_DIR',
       path.join(__dirname, '../../../../questions'),
     );
-    this.bank = this.readJsonFiles(questionsDir);
+    const { questions, errors } = loadQuestionBank(questionsDir);
+    if (errors.length > 0) {
+      for (const err of errors) this.logger.error(err);
+      // A bad bank silently breaks the daily set, duels and the weekly competition, so refuse to start.
+      throw new Error(`Question bank has ${errors.length} invalid entr${errors.length === 1 ? 'y' : 'ies'} (see log)`);
+    }
+    if (questions.length === 0) this.logger.warn(`No questions found in ${questionsDir}`);
+    this.bank = questions;
   }
 
-  private readJsonFiles(dir: string): Question[] {
-    const questions: Question[] = [];
-    if (!fs.existsSync(dir)) {
-      this.logger.warn(`Questions directory not found: ${dir}`);
-      return questions;
-    }
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        questions.push(...this.readJsonFiles(full));
-      } else if (
-        entry.isFile() &&
-        entry.name.endsWith('.json') &&
-        !entry.name.includes('test')
-      ) {
-        try {
-          const q = JSON.parse(fs.readFileSync(full, 'utf-8'));
-          questions.push(q);
-        } catch (e) {
-          this.logger.warn(`Failed to parse ${full}: ${(e as Error).message}`);
-        }
-      }
-    }
-    return questions;
+  /** Replace the in-memory bank (tests). */
+  setBank(questions: Question[]) {
+    this.bank = questions;
   }
 
   // ── Daily set ─────────────────────────────────────────────────────────────
@@ -82,78 +68,80 @@ export class QuestionsService {
   async submitDaily(
     userId: string,
     answers: Record<string, number>,
-  ): Promise<{ score: number; total: number; pointsEarned: number; streak: number }> {
+  ): Promise<{
+    score: number;
+    total: number;
+    pointsEarned: number;
+    streak: number;
+    results: Array<{ questionId: string; choice: number | null; correct: boolean; answer: number | null; explanation: string }>;
+  }> {
     const date = this.todayString();
+    // Score against the set that was served today, not a fresh rebuild from the current bank.
+    const set = await this.getStoredDailySet(date);
+    if (set.length === 0) throw new BadRequestException('No Daily Blitz is available today');
 
-    // Check for duplicate submission
-    const existing = await this.prisma.dailySubmission.findUnique({
-      where: { userId_date: { userId, date } },
+    const results = set.map((q) => {
+      const raw = answers[q.id];
+      const choice = Number.isInteger(raw) ? raw : null;
+      const answer = 'answer' in q ? (q as { answer: number }).answer : null;
+      return {
+        questionId: q.id,
+        choice,
+        correct: choice !== null && answer === choice,
+        answer,
+        explanation: q.explanation,
+      };
     });
-    if (existing) {
-      throw new BadRequestException('You have already submitted today\'s Daily Blitz');
-    }
+    const score = results.filter((r) => r.correct).length;
+    const total = set.length;
+    // Only keep answers to questions in the set, so a client can't store arbitrary JSON.
+    const storedAnswers = Object.fromEntries(results.map((r) => [r.questionId, r.choice]));
 
-    const set = this.buildDailySet(date);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        // Insert first: the unique (userId, date) key makes a second submit fail here,
+        // before the streak or points are touched.
+        const submission = await tx.dailySubmission.create({
+          data: { userId, date, score, pointsEarned: 0, answers: storedAnswers },
+        });
 
-    // Score server-side
-    let score = 0;
-    for (const q of set) {
-      const choice = answers[q.id];
-      if (choice !== undefined && 'answer' in q && (q as any).answer === choice) {
-        score++;
+        const user = await this.users.updateStreak(userId, tx);
+        const streak = user?.streak ?? 1;
+        const multiplier = calculateStreakMultiplier(streak);
+        const baseXp = score * DAILY_POINTS.CORRECT_ANSWER;
+        const perfectBonus = score === total ? DAILY_POINTS.PERFECT_SCORE : 0;
+        const pointsEarned = Math.max(
+          Math.round((baseXp + perfectBonus + DAILY_POINTS.COMPLETION_BONUS) * multiplier),
+          0,
+        );
+
+        await tx.dailySubmission.update({ where: { id: submission.id }, data: { pointsEarned } });
+        await this.ranking.awardPoints(userId, pointsEarned, 'daily_blitz', date, { tx, xp: pointsEarned });
+        if (user) await this.ranking.checkStreakBadges(userId, streak, tx);
+
+        return { score, total, pointsEarned, streak, results };
+      }, { timeout: 15_000 });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new BadRequestException('You have already submitted today\'s Daily Blitz');
       }
+      throw e;
+    } finally {
+      await this.redis.del('leaderboard:weekly').catch(() => undefined);
     }
-
-    // Calculate XP
-    let baseXp = score * DAILY_POINTS.CORRECT_ANSWER;
-    const speedBonus = 0; // Daily blitz doesn't track per-question timing
-    const perfectBonus = score === DAILY_SET_SIZE ? DAILY_POINTS.PERFECT_SCORE : 0;
-    const completionBonus = DAILY_POINTS.COMPLETION_BONUS;
-
-    // Update streak first so we have the current value
-    const user = await this.users.updateStreak(userId);
-    const multiplier = calculateStreakMultiplier(user?.streak ?? 1);
-
-    const rawPoints = Math.round((baseXp + perfectBonus + completionBonus) * multiplier);
-    const pointsEarned = Math.max(rawPoints, 0);
-
-    // Persist submission
-    await this.prisma.dailySubmission.create({
-      data: {
-        userId,
-        date,
-        score,
-        pointsEarned,
-        answers,
-      },
-    });
-
-    // Award rank points via RankingService (floor protection, audit, tier calc)
-    await this.ranking.awardPoints(userId, pointsEarned, 'daily_blitz', date);
-
-    // Check streak badges
-    if (user) {
-      await this.ranking.checkStreakBadges(userId, user.streak);
-    }
-
-    return { score, total: DAILY_SET_SIZE, pointsEarned, streak: user?.streak ?? 1 };
   }
 
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT, { timeZone: 'UTC' })
   async seedDailySet(): Promise<void> {
     const date = this.todayString();
+    // One instance seeds; the others skip (crons run on every replica).
+    if (!(await this.redis.acquireLock(`cron:daily-seed:${date}`, 300))) return;
     this.logger.log(`Seeding daily set for ${date}`);
-    const set = this.buildDailySet(date);
-    await this.prisma.dailySet.upsert({
-      where: { date },
-      create: { date, seed: date, questionIds: set.map((q) => q.id) },
-      update: { questionIds: set.map((q) => q.id) },
-    });
-    await this.redis.setJson(`daily:${date}`, set, DAILY_CACHE_TTL);
+    const set = await this.getStoredDailySet(date);
 
     // Notify authors whose questions are used in today's set
     for (const q of set) {
-      await this.contributions.notifyQuestionUsed(q.id, 'daily_blitz', 0).catch(() => {});
+      await this.contributions.notifyQuestionUsed(q.id, 'daily_blitz', 0, date).catch(() => {});
     }
 
     this.logger.log(`Daily set for ${date} seeded with ${set.length} questions`);
@@ -161,20 +149,45 @@ export class QuestionsService {
 
   async getDailySet() {
     const date = this.todayString();
-    const cached = await this.redis.getJson<Question[]>(`daily:${date}`);
-    const set = cached ?? this.buildDailySet(date);
-    if (!cached) {
-      await this.redis.setJson(`daily:${date}`, set, DAILY_CACHE_TTL);
-    }
+    const set = await this.getStoredDailySet(date);
     // Strip answers before sending to client
     return set.map((q) => this.stripAnswer(q));
   }
 
+  /**
+   * Today's set as stored in the DB (created on first use). Every instance and every
+   * request for the day resolves the same question IDs, even if the bank changes mid-day.
+   */
+  private async getStoredDailySet(date: string): Promise<Question[]> {
+    let ids = await this.redis.getJson<string[]>(`daily:${date}:ids`);
+    if (!ids) {
+      const stored = await this.prisma.dailySet.findUnique({ where: { date } });
+      if (stored) {
+        ids = stored.questionIds;
+      } else {
+        const built = this.buildDailySet(date).map((q) => q.id);
+        if (built.length === 0) return [];
+        const created = await this.prisma.dailySet.upsert({
+          where: { date },
+          create: { date, seed: date, questionIds: built },
+          update: {}, // another request won the race; keep its set
+        });
+        ids = created.questionIds;
+      }
+      await this.redis.setJson(`daily:${date}:ids`, ids, DAILY_CACHE_TTL);
+    }
+    return ids
+      .map((id) => this.bank.find((q) => q.id === id))
+      .filter((q): q is Question => !!q);
+  }
+
   private buildDailySet(date: string): Question[] {
-    if (this.bank.length === 0) return [];
+    // Coding questions need the editor and execution flow, so the blitz uses multiple-choice types.
+    const pool = this.bank.filter((q) => q.type !== 'coding');
+    if (pool.length === 0) return [];
     // Use a seeded shuffle so everyone gets the same questions on the same day
     const rng = seedrandom(date);
-    return this.shuffleArray(this.bank, rng).slice(0, DAILY_SET_SIZE);
+    return this.shuffleArray(pool, rng).slice(0, DAILY_SET_SIZE);
   }
 
   // ── Question lookup ───────────────────────────────────────────────────────
@@ -190,10 +203,8 @@ export class QuestionsService {
     return this.stripAnswer(q);
   }
 
-  findByTopic(topic: Topic, count: number): Question[] {
-    const filtered = this.bank.filter((q) => q.topic === topic);
-    const rng = seedrandom(Date.now().toString());
-    return this.shuffleArray(filtered, rng).slice(0, count);
+  isValidTopic(topic: string): topic is Topic | 'mixed' {
+    return topic === 'mixed' || TOPICS.includes(topic as Topic);
   }
 
   findForDuel(topic: Topic | 'mixed', rounds: number): Question[] {
@@ -222,9 +233,16 @@ export class QuestionsService {
     return this.shuffleArray(eligible, rng).slice(0, count);
   }
 
-  private stripAnswer(q: Question) {
+  /**
+   * A copy of the question safe to send before it is answered: no answer key, and no
+   * explanation or fixed code (both usually give the answer away). Daily Blitz returns
+   * explanations with the results after submitting.
+   */
+  stripAnswer(q: Question): Omit<Question, 'answer'> {
     const { ...safe } = q as any;
     delete safe.answer;
+    delete safe.explanation;
+    delete safe.fixedCode;
     return safe;
   }
 
@@ -239,9 +257,62 @@ export class QuestionsService {
     return result;
   }
 
-  private todayString(): string {
+  todayString(): string {
     return new Date().toISOString().split('T')[0];
   }
+}
+
+const TOPICS: Topic[] = ['dsa', 'systems', 'cs-fundamentals', 'networking'];
+
+/**
+ * Read every question JSON under `dir`. A file holds one question or an array of them.
+ * Returns the flattened, validated questions plus one error string per problem
+ * (invalid JSON, schema errors, duplicate IDs).
+ */
+export function loadQuestionBank(dir: string): { questions: Question[]; errors: string[] } {
+  const questions: Question[] = [];
+  const errors: string[] = [];
+  const seen = new Map<string, string>();
+
+  const walk = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'solutions') continue; // reference solutions are never served
+        walk(full);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith('.json') || entry.name.includes('test')) continue;
+
+      let raw: unknown;
+      try {
+        raw = JSON.parse(fs.readFileSync(full, 'utf-8'));
+      } catch (e) {
+        errors.push(`${full}: invalid JSON (${(e as Error).message})`);
+        continue;
+      }
+      questionsFromFile(raw).forEach((q, i) => {
+        const where = Array.isArray(raw) ? `${full}[${i}]` : full;
+        const problems = validateQuestion(q, full);
+        if (problems.length > 0) {
+          errors.push(`${where}: ${problems.join('; ')}`);
+          return;
+        }
+        const question = q as Question;
+        const previous = seen.get(question.id);
+        if (previous) {
+          errors.push(`${where}: duplicate id "${question.id}" (also in ${previous})`);
+          return;
+        }
+        seen.set(question.id, where);
+        questions.push(question);
+      });
+    }
+  };
+
+  if (!fs.existsSync(dir)) return { questions, errors: [`Questions directory not found: ${dir}`] };
+  walk(dir);
+  return { questions, errors };
 }
 
 

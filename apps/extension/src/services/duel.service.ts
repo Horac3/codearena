@@ -8,6 +8,7 @@ type DuelEventHandler = (data: any) => void;
 export class DuelService {
   private socket: Socket | null = null;
   private handlers = new Map<string, DuelEventHandler[]>();
+  private lastInviteToken: string | null = null;
 
   constructor(
     private context: vscode.ExtensionContext,
@@ -23,6 +24,9 @@ export class DuelService {
 
   async connect(): Promise<void> {
     if (this.socket?.connected) return;
+    // Drop a stale (disconnected) socket instead of stacking a second one next to it.
+    this.socket?.removeAllListeners();
+    this.socket?.disconnect();
 
     const token = await this.auth.getToken();
     if (!token) throw new Error('Not authenticated');
@@ -35,24 +39,31 @@ export class DuelService {
         reconnectionAttempts: 5,
       });
 
-      this.socket.on('connect', () => resolve());
-      this.socket.on('connect_error', (err) => reject(err));
+      this.socket.once('connect', () => resolve());
+      this.socket.once('connect_error', (err) => reject(err));
 
       // Forward all server events to registered handlers
       const serverEvents = [
         'DUEL_CREATED', 'DUEL_READY', 'DUEL_ERROR',
         'COUNTDOWN', 'QUESTION', 'SCORE_UPDATE',
-        'DUEL_END', 'PLAYER_DISCONNECTED',
+        'DUEL_END', 'PLAYER_DISCONNECTED', 'PLAYER_RECONNECTED',
       ];
       for (const event of serverEvents) {
         this.socket.on(event, (data: any) => {
+          if (event === 'DUEL_CREATED' && data?.inviteToken) this.lastInviteToken = data.inviteToken;
           this.emit(event, data);
         });
       }
+      // After socket.io reconnects on its own, rejoin so the server re-attaches this player
+      // (otherwise the grace period runs out and the duel is forfeited).
+      this.socket.io.on('reconnect', () => {
+        if (this.lastInviteToken) this.socket?.emit('JOIN_DUEL', { inviteToken: this.lastInviteToken });
+      });
     });
   }
 
   disconnect() {
+    this.lastInviteToken = null;
     this.socket?.disconnect();
     this.socket = null;
     this.handlers.clear();
@@ -64,17 +75,16 @@ export class DuelService {
     this.socket?.emit('CREATE_DUEL', { topic, rounds });
   }
 
-  joinDuel(roomId: string) {
-    this.socket?.emit('JOIN_DUEL', { roomId });
+  /** Join (or rejoin after a reconnect) by invite token. The server never accepts a bare room id. */
+  joinDuel(inviteToken: string) {
+    this.lastInviteToken = inviteToken;
+    this.socket?.emit('JOIN_DUEL', { inviteToken });
   }
 
   submitAnswer(roomId: string, questionId: string, choice: number, elapsedMs: number) {
     this.socket?.emit('ANSWER', { roomId, questionId, choice, elapsedMs });
   }
 
-  signalTimeout(roomId: string, questionId: string) {
-    this.socket?.emit('QUESTION_TIMEOUT', { roomId, questionId });
-  }
 
   // ── Event bus ─────────────────────────────────────────────────────────
 
