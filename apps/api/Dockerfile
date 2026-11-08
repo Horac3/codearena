@@ -30,6 +30,8 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/dist ./dist
 COPY --from=builder /app/apps/api/prisma ./prisma
 COPY --from=builder /app/packages/question-schema/dist ./packages/question-schema/dist
+# package.json is what lets node resolve @codearena/question-schema to dist/index.js
+COPY --from=builder /app/packages/question-schema/package.json ./packages/question-schema/package.json
 
 # Run migrations then start
 COPY apps/api/entrypoint.sh ./entrypoint.sh
