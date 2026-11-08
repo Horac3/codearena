@@ -6,7 +6,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WeeklyService } from './weekly.service';
 
 class SubmitWeeklyDto {
-  @IsObject() answers: Record<string, number>;
+  @IsObject() answers!: Record<string, number>;
 }
 
 @ApiTags('weekly')

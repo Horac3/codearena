@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
 const LEADERBOARD_TTL = 300; // 5 minutes cache
+const MAX_ENTRIES = 100;
 
 @Injectable()
 export class LeaderboardService {
@@ -12,16 +13,19 @@ export class LeaderboardService {
     private redis: RedisService,
   ) {}
 
+  // One cached list (the top MAX_ENTRIES); each caller gets a slice of it, so the first
+  // caller's limit no longer decides what everyone sees for five minutes.
   async getWeekly(limit = 50) {
-    const cached = await this.redis.getJson('leaderboard:weekly');
-    if (cached) return cached;
-    return this.buildAndCache(limit);
+    const take = Math.min(Math.max(Math.floor(limit) || 50, 1), MAX_ENTRIES);
+    const cached = await this.redis.getJson<unknown[]>('leaderboard:weekly');
+    const entries = cached ?? (await this.buildAndCache());
+    return entries.slice(0, take);
   }
 
-  private async buildAndCache(limit: number) {
+  private async buildAndCache() {
     const entries = await this.prisma.user.findMany({
-      orderBy: { weeklyXp: 'desc' },
-      take: limit,
+      orderBy: [{ weeklyXp: 'desc' }, { id: 'asc' }],
+      take: MAX_ENTRIES,
       select: {
         id: true,
         username: true,

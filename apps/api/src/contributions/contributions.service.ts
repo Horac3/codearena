@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RankingService } from '../ranking/ranking.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RedisService } from '../redis/redis.service';
+import { ConfigService } from '@nestjs/config';
 import {
   CONTRIBUTION_POINTS,
   REVIEWER_REQUIREMENTS,
@@ -30,9 +31,51 @@ export class ContributionsService {
     private ranking: RankingService,
     private notifications: NotificationsService,
     private redis: RedisService,
+    private config: ConfigService,
   ) {}
 
+  /**
+   * Maintainers are named explicitly (MAINTAINER_GITHUB_IDS, comma-separated GitHub user IDs).
+   * Rank alone never grants merge or reviewer-verification rights.
+   */
+  private async isMaintainer(userId: string): Promise<boolean> {
+    const ids = (this.config.get<string>('MAINTAINER_GITHUB_IDS') ?? '')
+      .split(',').map((s) => s.trim()).filter(Boolean);
+    if (ids.length === 0) return false;
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { githubId: true } });
+    return !!user && ids.includes(user.githubId);
+  }
+
+  private async assertMaintainer(userId: string) {
+    if (!(await this.isMaintainer(userId))) {
+      throw new ForbiddenException('Only maintainers can do this');
+    }
+  }
+
+  private async isActiveReviewer(userId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { isReviewer: true, reviewerStatus: true },
+    });
+    return !!user?.isReviewer && user.reviewerStatus === 'ACTIVE';
+  }
+
   // ── Submit a contribution (called by CI webhook after PR opens) ────────
+
+  /** CI entry point: the PR author is identified by GitHub user ID. */
+  async registerFromCi(input: {
+    authorGithubId: string;
+    questionId: string;
+    questionSnapshot: unknown;
+    prNumber?: number;
+    prUrl?: string;
+  }) {
+    const author = await this.prisma.user.findUnique({ where: { githubId: input.authorGithubId } });
+    if (!author) throw new NotFoundException('The PR author has not signed in to CodeArena yet');
+    return this.registerContribution(
+      author.id, input.questionId, input.questionSnapshot, input.prNumber, input.prUrl,
+    );
+  }
 
   async registerContribution(
     authorId: string,
@@ -172,19 +215,14 @@ export class ContributionsService {
       },
     });
 
-    // Award reviewer points immediately
+    // Award reviewer points (and weekly XP for reviewer activity) immediately
     await this.ranking.awardPoints(
       reviewerId,
       CONTRIBUTION_POINTS.REVIEW_SUBMITTED,
       'review_submitted',
       review.id,
+      { xp: 15 },
     );
-
-    // Award weekly XP for reviewer activity
-    await this.prisma.user.update({
-      where: { id: reviewerId },
-      data: { weeklyXp: { increment: 15 } },
-    });
     await this.redis.del('leaderboard:weekly');
 
     // Check if we have enough approvals
@@ -232,6 +270,8 @@ export class ContributionsService {
   // ── Maintainer merges contribution ────────────────────────────────────
 
   async mergeContribution(contributionId: string, maintainerId: string) {
+    await this.assertMaintainer(maintainerId);
+
     const contribution = await this.prisma.contribution.findUniqueOrThrow({
       where: { id: contributionId },
       include: { reviews: true, author: true },
@@ -245,20 +285,12 @@ export class ContributionsService {
       throw new BadRequestException('CI must pass before a contribution can be merged');
     }
 
-    // Verify the merger has sufficient permissions (senior reviewer rank 8+)
-    const maintainer = await this.prisma.user.findUniqueOrThrow({
-      where: { id: maintainerId },
-    });
-    if (maintainer.rankTier < REVIEWER_REQUIREMENTS.SENIOR_MIN_TIER) {
-      throw new ForbiddenException(
-        `Only reviewers of rank ${REVIEWER_REQUIREMENTS.SENIOR_MIN_TIER}+ can merge contributions`,
-      );
-    }
-
-    await this.prisma.contribution.update({
-      where: { id: contributionId },
+    // Atomic status flip: of two concurrent merge calls, only one moves APPROVED → MERGED.
+    const { count } = await this.prisma.contribution.updateMany({
+      where: { id: contributionId, status: 'APPROVED', ciPassed: true },
       data: { status: 'MERGED', mergedAt: new Date(), pointsAwarded: CONTRIBUTION_POINTS.QUESTION_MERGED },
     });
+    if (count === 0) throw new BadRequestException('Contribution was already merged or changed');
 
     // Award author points
     await this.ranking.awardPoints(
@@ -282,7 +314,7 @@ export class ContributionsService {
     await this.checkAuthorBadges(contribution.authorId);
 
     // Award author badge (dedup via ensureBadge)
-    await this.ensureBadge(
+    await this.ranking.ensureBadge(
       contribution.authorId,
       'QUESTION_AUTHOR',
       `Question "${contribution.questionId}" merged`,
@@ -328,7 +360,10 @@ export class ContributionsService {
   async verifyShadowReview(
     shadowReviewId: string,
     maintainerVerdict: boolean,
+    maintainerId: string,
   ) {
+    await this.assertMaintainer(maintainerId);
+
     const shadow = await this.prisma.shadowReview.findUniqueOrThrow({
       where: { id: shadowReviewId },
     });
@@ -375,7 +410,7 @@ export class ContributionsService {
         metadata: { accuracy },
       });
 
-      await this.ensureBadge(candidateId, 'COMMUNITY_REVIEWER', 'Earned Community Reviewer status');
+      await this.ranking.ensureBadge(candidateId, 'COMMUNITY_REVIEWER', 'Earned Community Reviewer status');
     }
   }
 
@@ -385,6 +420,8 @@ export class ContributionsService {
     questionId: string,
     context: 'daily_blitz' | 'weekly_comp',
     participantCount: number,
+    /** The day or competition this use belongs to: the bonus is paid once per occurrence. */
+    occurrence: string,
   ) {
     const contribution = await this.prisma.contribution.findUnique({
       where: { questionId },
@@ -395,12 +432,13 @@ export class ContributionsService {
       ? CONTRIBUTION_POINTS.USED_IN_DAILY_BLITZ
       : CONTRIBUTION_POINTS.USED_IN_WEEKLY_COMP;
 
-    await this.ranking.awardPoints(
+    const award = await this.ranking.awardPoints(
       contribution.authorId,
       bonus,
       `question_${context}`,
-      questionId,
+      `${questionId}:${occurrence}`,
     );
+    if (award.duplicate) return;
 
     await this.notifications.send(contribution.authorId, {
       type: 'question_used',
@@ -424,17 +462,16 @@ export class ContributionsService {
     const count = await this.prisma.contribution.count({
       where: { authorId, status: 'MERGED' },
     });
-    if (count >= 5)  await this.ensureBadge(authorId, 'CONTENT_CREATOR',      '5 questions merged');
-    if (count >= 20) await this.ensureBadge(authorId, 'CURRICULUM_ARCHITECT', '20 questions merged');
+    if (count >= 5)  await this.ranking.ensureBadge(authorId, 'CONTENT_CREATOR',      '5 questions merged');
+    if (count >= 20) await this.ranking.ensureBadge(authorId, 'CURRICULUM_ARCHITECT', '20 questions merged');
   }
 
-  private async ensureBadge(userId: string, type: string, label: string) {
-    const exists = await this.prisma.badge.findFirst({ where: { userId, type: type as any } });
-    if (!exists) await this.prisma.badge.create({ data: { userId, type: type as any, label } });
-  }
-
-  async getContributionStatus(questionId: string) {
-    return this.prisma.contribution.findUnique({
+  /**
+   * Status of a contribution. The question snapshot (which holds the answer key of an
+   * unreleased question) is only returned to its author, active reviewers and maintainers.
+   */
+  async getContributionStatus(questionId: string, viewerId: string) {
+    const contribution = await this.prisma.contribution.findUnique({
       where: { questionId },
       include: {
         reviews: {
@@ -442,9 +479,21 @@ export class ContributionsService {
         },
       },
     });
+    if (!contribution) throw new NotFoundException('Contribution not found');
+
+    const canSeeSnapshot =
+      contribution.authorId === viewerId ||
+      (await this.isActiveReviewer(viewerId)) ||
+      (await this.isMaintainer(viewerId));
+    if (canSeeSnapshot) return contribution;
+    const { questionSnapshot: _hidden, ...rest } = contribution;
+    return rest;
   }
 
-  async getPendingReviews() {
+  async getPendingReviews(viewerId: string) {
+    if (!(await this.isActiveReviewer(viewerId)) && !(await this.isMaintainer(viewerId))) {
+      throw new ForbiddenException('Only active reviewers can see the review queue');
+    }
     return this.prisma.contribution.findMany({
       where: { status: { in: ['NEEDS_REVIEW', 'IN_REVIEW'] }, ciPassed: true },
       include: { author: { select: { username: true, rankTier: true } } },

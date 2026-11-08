@@ -63,7 +63,7 @@ enum BadgeType {
 model User {
   id              String          @id @default(uuid())
   githubId        String          @unique
-  username        String          @unique
+  username        String
   avatarUrl       String?
   email           String?
   rankPoints      Int             @default(0)
@@ -98,6 +98,7 @@ model User {
   @@index([rankPoints])
   @@index([weeklyXp])
   @@index([rankTier])
+  @@index([username])
 }
 
 model RankEvent {
@@ -114,6 +115,9 @@ model RankEvent {
 
   user        User     @relation(fields: [userId], references: [id])
 
+  // Idempotency key: the same award (reason + source) is never granted twice to a user.
+  // Postgres treats NULL sourceIds as distinct, so unkeyed awards are unaffected.
+  @@unique([userId, reason, sourceId])
   @@index([userId])
   @@index([createdAt])
 }
@@ -123,10 +127,13 @@ model Badge {
   userId    String
   type      BadgeType
   label     String
+  // What the badge was earned for (a week, a tier, …). Empty for once-ever badges.
+  scope     String    @default("")
   awardedAt DateTime  @default(now())
 
   user      User      @relation(fields: [userId], references: [id])
 
+  @@unique([userId, type, scope])
   @@index([userId])
 }
 
@@ -220,6 +227,7 @@ model WeeklyCompetition {
   themeLabel  String
   questionIds String[]
   isActive    Boolean  @default(false)
+  closedAt    DateTime?
   createdAt   DateTime @default(now())
 
   submissions WeeklySubmission[]

@@ -6,7 +6,7 @@ import Redis from 'ioredis';
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
-  private client: Redis;
+  private client!: Redis;
 
   constructor(private config: ConfigService) {}
 
@@ -45,6 +45,20 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.client.del(key);
   }
 
+  /**
+   * Take a short-lived lock (SET NX EX). Returns true for exactly one caller until it expires.
+   * Used so crons do their work once even when several API instances run them.
+   */
+  async acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
+    const ok = await this.client.set(`lock:${key}`, '1', 'EX', ttlSeconds, 'NX');
+    return ok === 'OK';
+  }
+
+  /** Connection options for BullMQ, derived from the same REDIS_URL as this client. */
+  bullConnection() {
+    return redisConnectionOptions(this.config.get<string>('REDIS_URL', 'redis://localhost:6379'));
+  }
+
   async getJson<T>(key: string): Promise<T | null> {
     const raw = await this.client.get(key);
     if (!raw) return null;
@@ -54,4 +68,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async setJson<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {
     await this.set(key, JSON.stringify(value), ttlSeconds);
   }
+}
+
+export function redisConnectionOptions(url: string) {
+  const u = new URL(url);
+  return {
+    host: u.hostname,
+    port: Number(u.port || 6379),
+    ...(u.username ? { username: decodeURIComponent(u.username) } : {}),
+    ...(u.password ? { password: decodeURIComponent(u.password) } : {}),
+    ...(u.pathname && u.pathname !== '/' ? { db: Number(u.pathname.slice(1)) || 0 } : {}),
+    ...(u.protocol === 'rediss:' ? { tls: {} } : {}),
+  };
 }
