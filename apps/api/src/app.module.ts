@@ -2,6 +2,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { HttpThrottlerGuard } from './throttler.guard';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { Judge0Module } from './judge0/judge0.module';
@@ -21,6 +24,8 @@ import { JobsModule } from './jobs/jobs.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
+    // Default HTTP rate limit; expensive routes (code execution) set a tighter one.
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     // Infrastructure (global)
     PrismaModule,
     RedisModule,
@@ -38,5 +43,6 @@ import { JobsModule } from './jobs/jobs.module';
     ExecutionModule,
     JobsModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: HttpThrottlerGuard }],
 })
 export class AppModule {}
