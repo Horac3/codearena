@@ -82,7 +82,8 @@ export class Judge0LanguageService implements OnModuleInit {
       if (name.startsWith('go')) {
         if (!map['go']) map['go'] = entry.id;
       }
-      if (name.includes('java')) {
+      // "java" but not "javascript"
+      if (/^java(?!script)/.test(name)) {
         if (name.includes('java 8') || name.includes('java 11')) continue;
         if (!map['java']) map['java'] = entry.id;
       }

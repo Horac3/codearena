@@ -1,20 +1,30 @@
 // apps/api/src/jobs/execution.queue.ts
 // BullMQ job queue for code execution — keeps Judge0 from saturating the CPU.
 // The API enqueues jobs and returns a jobId immediately.
-// A separate worker processes jobs one or two at a time.
-// The extension polls GET /execute/:jobId for results.
+// A worker processes jobs two at a time; the extension polls GET /execute/:jobId for results.
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Queue, Worker, Job } from 'bullmq';
+import { Queue, Worker, Job, UnrecoverableError } from 'bullmq';
+import { randomBytes } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RankingService } from '../ranking/ranking.service';
 import { Judge0LanguageService } from '../judge0/judge0-language.service';
 import { QuestionsService } from '../questions/questions.service';
 import { CodingQuestion, XP } from '@codearena/question-schema';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Prisma } from '@prisma/client';
+import {
+  HarnessError,
+  buildJsProgram,
+  expectedTestNames,
+  hasHarness,
+  parseHarnessOutput,
+  solutionName,
+  toJavaScript,
+} from './code-harness';
 
 export interface ExecutionJobData {
   jobDbId:    string;
@@ -25,7 +35,7 @@ export interface ExecutionJobData {
 }
 
 @Injectable()
-export class ExecutionQueue {
+export class ExecutionQueue implements OnModuleDestroy {
   private readonly logger = new Logger(ExecutionQueue.name);
   private queue: Queue;
   private worker: Worker;
@@ -38,10 +48,9 @@ export class ExecutionQueue {
     private judge0: Judge0LanguageService,
     private questions: QuestionsService,
   ) {
-    const connection = {
-      host: this.config.get('REDIS_HOST', 'codearena-redis'),
-      port: this.config.get<number>('REDIS_PORT', 6379),
-    };
+    // Same REDIS_URL as the rest of the API (the old REDIS_HOST/REDIS_PORT pair pointed
+    // at the Docker hostname even when running outside Docker).
+    const connection = this.redis.bullConnection();
 
     this.queue = new Queue('code-execution', { connection });
 
@@ -57,14 +66,21 @@ export class ExecutionQueue {
       this.logger.log(`Job ${job.id} completed`),
     );
     this.worker.on('failed', (job, err) =>
-      this.logger.error(`Job ${job?.id} failed: ${err.message}`),
+      this.logger.warn(`Job ${job?.id} failed: ${err.message}`),
     );
+  }
+
+  async onModuleDestroy() {
+    await this.worker.close();
+    await this.queue.close();
   }
 
   // ── Enqueue ───────────────────────────────────────────────────────────
 
   async enqueue(data: ExecutionJobData) {
     const job = await this.queue.add('execute', data, {
+      // Retries are for infrastructure hiccups (Judge0 unreachable). Results of the user's
+      // own code (wrong answer, crash, timeout) are final and never retried.
       attempts:    3,
       backoff:     { type: 'exponential', delay: 2000 },
       removeOnComplete: { count: 100 },
@@ -92,54 +108,44 @@ export class ExecutionQueue {
 
     try {
       const question = this.questions.findById(questionId);
-      if (question.type !== 'coding') {
-        throw new Error('Only coding questions can be executed');
-      }
+      if (question.type !== 'coding') throw new HarnessError('Only coding questions can be executed');
+      if (!hasHarness(language)) throw new HarnessError(`${language} submissions are not supported yet`);
+
       const codingQ = question as CodingQuestion;
+      const fnName = solutionName(codingQ.functionSignature[language]);
+      if (!fnName) throw new HarnessError(`This question has no ${language} signature`);
+
       const timeLimit = codingQ.timeLimit ?? 5000;
+      const testSource = this.loadTestFile(codingQ.testFile);
+      const expected = expectedTestNames(testSource);
+      const marker = `@@CA-${randomBytes(16).toString('hex')}@@`;
+      const program = buildJsProgram(toJavaScript(code, language), fnName, testSource);
 
-      // Load test source from disk
-      const testSource = this.loadTestFile(codingQ.testFile, language);
+      const started = Date.now();
+      const data = await this.callJudge0(program, marker, timeLimit);
+      const executionMs = Date.now() - started;
 
-      const judge0Url = this.config.get('JUDGE0_URL', 'http://judge0:2358');
-      const judge0Token = this.config.get('JUDGE0_AUTH_TOKEN');
-      const fullSource = this.buildRunnable(code, testSource, language);
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      if (judge0Token) {
-        headers['Authorization'] = `Bearer ${judge0Token}`;
-      }
-
-      const response = await fetch(`${judge0Url}/submissions?wait=true`, {
-        method:  'POST',
-        headers,
-        body: JSON.stringify({
-          source_code: fullSource,
-          language_id: this.judge0.resolve(language),
-          stdin: '',
-          cpu_time_limit: Math.ceil(timeLimit / 1000),
-          memory_limit: 128000,
-        }),
-        signal: AbortSignal.timeout(timeLimit + 8000),
-      });
-
-      if (!response.ok) throw new Error(`Judge0 error: ${response.statusText}`);
-
-      const data   = await response.json() as any;
-
-      const stdout = data.stdout ?? '';
-      const stderr = data.stderr ?? data.compile_output ?? '';
-
+      const stdout: string = data.stdout ?? '';
       if (data.status?.id !== 3) {
-        throw new Error(`Execution failed: ${data.status?.description || 'Unknown error'}`);
+        // Compile error, runtime error, time limit… — the user's result, not a job failure.
+        const detail = (data.stderr || data.compile_output || '').toString().slice(0, 1000);
+        throw new HarnessError(`${data.status?.description ?? 'Execution failed'}${detail ? `: ${detail}` : ''}`);
       }
 
-      const results = this.parseOutput(stdout, stderr);
+      const results = parseHarnessOutput(stdout, marker, expected);
       const passed  = results.filter(r => r.passed).length;
-      const xp      = passed * XP.CODING_PER_TEST;
+      const allPassed = results.length > 0 && passed === results.length;
+
+      // XP once per question: on the first submission that passes every test.
+      let xpAwarded = 0;
+      if (allPassed) {
+        const xp = results.length * XP.CODING_PER_TEST;
+        const award = await this.ranking.awardPoints(userId, xp, 'coding_challenge', questionId, { xp });
+        if (!award.duplicate) {
+          xpAwarded = xp;
+          await this.redis.del('leaderboard:weekly');
+        }
+      }
 
       const result = {
         questionId,
@@ -147,108 +153,67 @@ export class ExecutionQueue {
         failed: results.length - passed,
         total:  results.length,
         results,
-        executionMs: Date.now(),
-        xpAwarded: xp,
+        executionMs,
+        xpAwarded,
       };
 
       await this.prisma.executionJob.update({
         where: { id: jobDbId },
-        data:  { status: 'completed', result, completedAt: new Date() },
+        data:  { status: 'completed', result: result as unknown as Prisma.InputJsonValue, completedAt: new Date() },
       });
-
-      // Award XP for passing tests
-      if (xp > 0) {
-        await this.ranking.awardPoints(userId, xp, 'coding_challenge', questionId);
-        await this.prisma.user.update({
-          where: { id: userId },
-          data:  { weeklyXp: { increment: xp } },
-        });
-        await this.redis.del('leaderboard:weekly');
-      }
-
-      // Cache result in Redis for 1 hour — the extension polls GET /execute/:jobId
-      await this.redis.setJson(`exec:result:${jobDbId}`, result, 3600);
-
     } catch (err: any) {
-      await this.prisma.executionJob.update({
-        where: { id: jobDbId },
-        data:  { status: 'failed', result: { error: err.message } },
-      });
+      const userFacing = err instanceof HarnessError;
+      const finalAttempt = userFacing || job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+      if (finalAttempt) {
+        await this.prisma.executionJob.update({
+          where: { id: jobDbId },
+          data:  {
+            status: 'failed',
+            result: { error: userFacing ? err.message : 'The code runner is unavailable. Try again shortly.' },
+            completedAt: new Date(),
+          },
+        });
+      }
+      if (userFacing) throw new UnrecoverableError(err.message); // don't retry the user's own result
       throw err;
     }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  private loadTestFile(testFile: string, language: string): string {
+  private async callJudge0(source: string, stdin: string, timeLimitMs: number): Promise<any> {
+    const judge0Url = this.config.get('JUDGE0_URL', 'http://judge0:2358');
+    const judge0Token = this.config.get('JUDGE0_AUTH_TOKEN');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (judge0Token) headers['Authorization'] = `Bearer ${judge0Token}`;
+
+    const response = await fetch(`${judge0Url}/submissions?wait=true`, {
+      method:  'POST',
+      headers,
+      body: JSON.stringify({
+        source_code: source,
+        language_id: this.judge0.resolve('javascript'), // TypeScript is transpiled to JS first
+        stdin,
+        cpu_time_limit: Math.ceil(timeLimitMs / 1000),
+        memory_limit: 128000,
+      }),
+      signal: AbortSignal.timeout(timeLimitMs + 8000),
+    });
+
+    if (!response.ok) throw new Error(`Judge0 error: ${response.status} ${response.statusText}`);
+    return response.json();
+  }
+
+  private loadTestFile(testFile: string): string {
     const questionsDir = this.config.get<string>(
       'QUESTIONS_DIR',
       path.join(__dirname, '../../../../questions'),
     );
-    const candidates = [
-      path.join(questionsDir, 'coding', 'tests', testFile.replace('.test.js', `.test.${this.ext(language)}`)),
-      path.join(questionsDir, 'coding', 'tests', testFile),
-    ];
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
-        return fs.readFileSync(candidate, 'utf-8');
-      }
+    const testsDir = path.join(questionsDir, 'coding', 'tests');
+    const candidate = path.resolve(testsDir, testFile);
+    if (!candidate.startsWith(path.resolve(testsDir) + path.sep) || !fs.existsSync(candidate)) {
+      throw new HarnessError('Test file not found for question');
     }
-    throw new Error(`Test file not found for question`);
+    return fs.readFileSync(candidate, 'utf-8');
   }
-
-  private ext(language: string): string {
-    return { javascript: 'js', typescript: 'ts', python: 'py', go: 'go' }[language] ?? 'js';
-  }
-
-  private buildRunnable(userCode: string, testSource: string, lang: string): string {
-    if (lang === 'javascript' || lang === 'typescript') {
-      return [userCode, '', INLINE_JS_HARNESS, '', testSource, '', 'runTests();'].join('\n');
-    }
-    if (lang === 'python') {
-      return [userCode, '', INLINE_PY_HARNESS, '', testSource, '', 'run_tests()'].join('\n');
-    }
-    return userCode + '\n' + testSource;
-  }
-
-  private parseOutput(stdout: string, stderr: string) {
-    const lines = stdout.trim().split('\n');
-    const last  = lines[lines.length - 1];
-    try {
-      return JSON.parse(last) as Array<{ name: string; passed: boolean; error?: string }>;
-    } catch {
-      return [{ name: 'Execution', failed: true, error: stderr || stdout || 'Unknown error' }];
-    }
-  }
-
 }
-
-// ── Inline test harnesses (no Jest dependency in Piston sandbox) ──────────
-
-const INLINE_JS_HARNESS = `
-const __tests=[];const __results=[];
-function test(name,fn){__tests.push({name,fn});}
-function describe(_,fn){fn();}
-function expect(actual){return{toEqual(e){if(JSON.stringify(actual)!==JSON.stringify(e))throw new Error('Expected '+JSON.stringify(e)+', got '+JSON.stringify(actual));},toBe(e){if(actual!==e)throw new Error('Expected '+e+', got '+actual);},toBeGreaterThan(n){if(actual<=n)throw new Error('Expected >'+n+', got '+actual);},toBeLessThan(n){if(actual>=n)throw new Error('Expected <'+n+', got '+actual);}}}
-function runTests(){for(const t of __tests){try{t.fn();__results.push({name:t.name,passed:true});}catch(e){__results.push({name:t.name,passed:false,error:e.message});}}console.log(JSON.stringify(__results));}
-`.trim();
-
-const INLINE_PY_HARNESS = `
-import json as __json
-__tests=[];__results=[]
-def test(name):
-  def d(fn):__tests.append((name,fn));return fn
-  return d
-class __E:
-  def __init__(self,a):self.a=a
-  def to_equal(self,e):
-    if self.a!=e:raise AssertionError(f'Expected {e}, got {self.a}')
-  def to_be(self,e):
-    if self.a!=e:raise AssertionError(f'Expected {e}, got {self.a}')
-def expect(v):return __E(v)
-def run_tests():
-  for name,fn in __tests:
-    try:fn();__results.append({'name':name,'passed':True})
-    except Exception as e:__results.append({'name':name,'passed':False,'error':str(e)})
-  print(__json.dumps(__results))
-`.trim();
