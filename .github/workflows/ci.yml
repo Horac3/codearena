@@ -48,6 +48,9 @@ jobs:
       - run: npm ci
       - name: Build question-schema
         run: npx tsc --project packages/question-schema/tsconfig.json
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: npx prisma generate --schema=./prisma/schema.prisma
       - name: Type-check API
         working-directory: apps/api
         run: npx tsc --noEmit
