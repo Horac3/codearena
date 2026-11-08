@@ -98,7 +98,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('codearena.login', async () => {
       const apiUrl = vscode.workspace
         .getConfiguration('codearena')
-        .get<string>('apiUrl', 'https://api.codearena.dev');
+        .get<string>('apiUrl', 'https://api.codearena.never9to5ive.com');
       const state = await auth.beginLogin();
       vscode.env.openExternal(vscode.Uri.parse(`${apiUrl}/auth/github?state=${state}`));
     }),

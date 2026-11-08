@@ -100,7 +100,7 @@
       "properties": {
         "codearena.apiUrl": {
           "type": "string",
-          "default": "https://api.codearena.dev",
+          "default": "https://api.codearena.never9to5ive.com",
           "description": "API base URL — change to self-host"
         },
         "codearena.showStatusBar": {

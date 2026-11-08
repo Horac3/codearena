@@ -124,7 +124,7 @@ export class DuelService {
     await this.saveRoom(room);
 
     // The invite page lives on the web app (WEB_URL), not the API (BASE_URL).
-    const webUrl = this.config.get<string>('WEB_URL', 'https://codearena.dev');
+    const webUrl = this.config.get<string>('WEB_URL', 'https://codearena.never9to5ive.com');
 
     return {
       roomId: duel.id,

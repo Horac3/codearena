@@ -36,7 +36,7 @@ export class AuthController {
   async githubCallbackWeb(@Req() req: any, @Res() res: any) {
     const user = req.user;
     const token = this.auth.signToken(user.id, user.username);
-    const webUrl = this.config.get<string>('WEB_URL', 'https://codearena.dev');
+    const webUrl = this.config.get<string>('WEB_URL', 'https://codearena.never9to5ive.com');
     res.redirect(`${webUrl}/auth/success?${authQuery(token, req.query?.state)}`);
   }
 }
