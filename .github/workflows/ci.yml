@@ -1,7 +1,7 @@
 # .github/workflows/ci.yml
 # Runs on every PR and every push to main/develop.
 # Four jobs run — question validation, solution testing, TypeScript builds,
-# and a Docker build smoke-test on main only.
+# and a Docker build smoke-test.
 
 name: CI
 
@@ -112,8 +112,7 @@ jobs:
   docker-build:
     name: Docker smoke-test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f apps/api/Dockerfile -t codearena-api:ci .
-      - run: docker build -f apps/web/Dockerfile -t codearena-web:ci apps/web/
+      - run: docker build -f apps/web/Dockerfile -t codearena-web:ci .

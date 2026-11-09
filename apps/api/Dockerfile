@@ -15,8 +15,9 @@ RUN npm run build --workspace=packages/question-schema
 
 # Build API
 COPY apps/api ./apps/api
-RUN npx tsc -p apps/api/tsconfig.docker.json --outDir ./apps/api/dist
+# Generate the Prisma client first: tsc needs its generated types
 RUN npx prisma generate --schema=apps/api/prisma/schema.prisma
+RUN npx tsc -p apps/api/tsconfig.docker.json --outDir ./apps/api/dist
 
 # ── Production image ──────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
