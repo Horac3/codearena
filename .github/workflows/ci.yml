@@ -115,4 +115,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f apps/api/Dockerfile -t codearena-api:ci .
-      - run: docker build -f apps/web/Dockerfile -t codearena-web:ci apps/web/
+      - run: docker build -f apps/web/Dockerfile -t codearena-web:ci .
